@@ -72,6 +72,7 @@
     let originalSrt = '';
     let translatedSrt = '';
     let wavesurfer = null;
+    let regionsPlugin = null;
     let selectedRegion = null;
     let audioBlob = null;
     
@@ -96,8 +97,15 @@
       return `${minutes}:${secs.toString().padStart(2, '0')}`;
     }
     
-    // Initialize WaveSurfer
+    // Initialize WaveSurfer - fixed for V6
     function initWaveSurfer() {
+      // Create the regions plugin instance first
+      regionsPlugin = WaveSurfer.regions.create({
+        dragSelection: true,
+        color: 'rgba(76, 175, 80, 0.3)'
+      });
+      
+      // Create wavesurfer with the plugin
       wavesurfer = WaveSurfer.create({
         container: '#waveform',
         waveColor: '#3498db',
@@ -109,13 +117,7 @@
         height: 100,
         barGap: 2,
         responsive: true,
-        plugins: [
-          WaveSurfer.regions.create({
-            regions: [],
-            dragSelection: true,
-            color: 'rgba(76, 175, 80, 0.3)'
-          })
-        ]
+        plugins: [regionsPlugin]
       });
       
       // Enable controls once audio is loaded
@@ -129,28 +131,33 @@
         
         // Initially create a region for the entire audio
         const duration = wavesurfer.getDuration();
-        selectedRegion = wavesurfer.regions.create({
+        
+        // Create a region using the plugin
+        selectedRegion = regionsPlugin.addRegion({
           start: 0,
           end: duration,
           color: 'rgba(76, 175, 80, 0.3)'
         });
+        
         updateSelectionDisplay(0, duration);
       });
       
       // Update selection time when region is updated
-      wavesurfer.on('region-update-end', function(region) {
+      regionsPlugin.on('region-updated', function(region) {
         selectedRegion = region;
         updateSelectionDisplay(region.start, region.end);
       });
       
       // Save created regions
-      wavesurfer.on('region-created', function(region) {
+      regionsPlugin.on('region-created', function(region) {
         // Remove previous regions
-        Object.keys(wavesurfer.regions.list).forEach(id => {
-          if (id !== region.id) {
-            wavesurfer.regions.list[id].remove();
+        const regions = regionsPlugin.getRegions();
+        regions.forEach(r => {
+          if (r.id !== region.id) {
+            r.remove();
           }
         });
+        
         selectedRegion = region;
         updateSelectionDisplay(region.start, region.end);
       });
@@ -172,7 +179,9 @@
         initWaveSurfer();
       } else {
         // Clear existing regions
-        wavesurfer.regions.clear();
+        if (regionsPlugin) {
+          regionsPlugin.clearRegions();
+        }
       }
       
       const fileURL = URL.createObjectURL(file);
@@ -194,32 +203,38 @@
     });
     
     document.getElementById('zoomInBtn').addEventListener('click', () => {
-      const currentZoom = wavesurfer.params.minPxPerSec;
+      const currentZoom = wavesurfer.params.minPxPerSec || 1;
       wavesurfer.zoom(currentZoom * 1.5);
     });
     
     document.getElementById('zoomOutBtn').addEventListener('click', () => {
-      const currentZoom = wavesurfer.params.minPxPerSec;
-      wavesurfer.zoom(currentZoom / 1.5);
+      const currentZoom = wavesurfer.params.minPxPerSec || 1;
+      wavesurfer.zoom(Math.max(1, currentZoom / 1.5));
     });
     
     document.getElementById('createRegionBtn').addEventListener('click', () => {
-      wavesurfer.regions.clear();
-      selectedRegion = wavesurfer.regions.create({
+      if (!regionsPlugin) return;
+      
+      regionsPlugin.clearRegions();
+      selectedRegion = regionsPlugin.addRegion({
         start: wavesurfer.getCurrentTime(),
         end: Math.min(wavesurfer.getCurrentTime() + 30, wavesurfer.getDuration()),
         color: 'rgba(76, 175, 80, 0.3)'
       });
+      
       updateSelectionDisplay(selectedRegion.start, selectedRegion.end);
     });
     
     document.getElementById('clearRegionsBtn').addEventListener('click', () => {
-      wavesurfer.regions.clear();
-      selectedRegion = wavesurfer.regions.create({
+      if (!regionsPlugin) return;
+      
+      regionsPlugin.clearRegions();
+      selectedRegion = regionsPlugin.addRegion({
         start: 0,
         end: wavesurfer.getDuration(),
         color: 'rgba(76, 175, 80, 0.3)'
       });
+      
       updateSelectionDisplay(0, wavesurfer.getDuration());
     });
     
