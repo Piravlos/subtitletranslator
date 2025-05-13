@@ -115,12 +115,12 @@
       const systemMsg = 'You are a helpful assistant that translates subtitles while preserving the timing and SRT structure exactly.';
       const userMsg = `Translate the following SRT to the target language, preserving numbering and timestamps exactly:\n\n${originalSrt}`;
       const payload = {
-        model: 'gpt-4o', 
+        model: 'gpt-4.1', 
         messages: [
           { role: 'system', content: systemMsg },
           { role: 'user', content: userMsg }
         ], 
-        max_tokens: 60000
+        max_tokens: 32768
       };
       const resp = await fetch('https://api.openai.com/v1/chat/completions', {
         method: 'POST', 
