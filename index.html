@@ -4,9 +4,9 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Whisper Transcriber & Translator</title>
-  <!-- WaveSurfer.js for audio visualization and editing -->
-  <script src="https://unpkg.com/wavesurfer.js@6.6.3"></script>
-  <script src="https://unpkg.com/wavesurfer.js@6.6.3/dist/plugin/wavesurfer.regions.min.js"></script>
+  <!-- WaveSurfer.js for audio visualization and editing - using v5 for better compatibility -->
+  <script src="https://unpkg.com/wavesurfer.js@5.2.0/dist/wavesurfer.min.js"></script>
+  <script src="https://unpkg.com/wavesurfer.js@5.2.0/dist/plugin/wavesurfer.regions.min.js"></script>
   <style>
     body { font-family: Arial, sans-serif; max-width: 900px; margin: 2rem auto; padding: 1rem; }
     label { display: block; margin: 1rem 0 0.5rem; }
@@ -72,7 +72,6 @@
     let originalSrt = '';
     let translatedSrt = '';
     let wavesurfer = null;
-    let regionsPlugin = null;
     let selectedRegion = null;
     let audioBlob = null;
     
@@ -97,15 +96,9 @@
       return `${minutes}:${secs.toString().padStart(2, '0')}`;
     }
     
-    // Initialize WaveSurfer - fixed for V6
+    // Initialize WaveSurfer with v5 API
     function initWaveSurfer() {
-      // Create the regions plugin instance first
-      regionsPlugin = WaveSurfer.regions.create({
-        dragSelection: true,
-        color: 'rgba(76, 175, 80, 0.3)'
-      });
-      
-      // Create wavesurfer with the plugin
+      // Create wavesurfer with regions plugin
       wavesurfer = WaveSurfer.create({
         container: '#waveform',
         waveColor: '#3498db',
@@ -117,7 +110,13 @@
         height: 100,
         barGap: 2,
         responsive: true,
-        plugins: [regionsPlugin]
+        plugins: [
+          WaveSurfer.regions.create({
+            regions: [],
+            dragSelection: true,
+            color: 'rgba(76, 175, 80, 0.3)'
+          })
+        ]
       });
       
       // Enable controls once audio is loaded
@@ -131,9 +130,7 @@
         
         // Initially create a region for the entire audio
         const duration = wavesurfer.getDuration();
-        
-        // Create a region using the plugin
-        selectedRegion = regionsPlugin.addRegion({
+        selectedRegion = wavesurfer.addRegion({
           start: 0,
           end: duration,
           color: 'rgba(76, 175, 80, 0.3)'
@@ -143,18 +140,18 @@
       });
       
       // Update selection time when region is updated
-      regionsPlugin.on('region-updated', function(region) {
+      wavesurfer.on('region-update-end', function(region) {
         selectedRegion = region;
         updateSelectionDisplay(region.start, region.end);
       });
       
       // Save created regions
-      regionsPlugin.on('region-created', function(region) {
+      wavesurfer.on('region-created', function(region) {
         // Remove previous regions
-        const regions = regionsPlugin.getRegions();
-        regions.forEach(r => {
-          if (r.id !== region.id) {
-            r.remove();
+        const regions = wavesurfer.regions.list;
+        Object.keys(regions).forEach(id => {
+          if (id !== region.id) {
+            regions[id].remove();
           }
         });
         
@@ -179,9 +176,7 @@
         initWaveSurfer();
       } else {
         // Clear existing regions
-        if (regionsPlugin) {
-          regionsPlugin.clearRegions();
-        }
+        wavesurfer.clearRegions();
       }
       
       const fileURL = URL.createObjectURL(file);
@@ -213,10 +208,8 @@
     });
     
     document.getElementById('createRegionBtn').addEventListener('click', () => {
-      if (!regionsPlugin) return;
-      
-      regionsPlugin.clearRegions();
-      selectedRegion = regionsPlugin.addRegion({
+      wavesurfer.clearRegions();
+      selectedRegion = wavesurfer.addRegion({
         start: wavesurfer.getCurrentTime(),
         end: Math.min(wavesurfer.getCurrentTime() + 30, wavesurfer.getDuration()),
         color: 'rgba(76, 175, 80, 0.3)'
@@ -226,10 +219,8 @@
     });
     
     document.getElementById('clearRegionsBtn').addEventListener('click', () => {
-      if (!regionsPlugin) return;
-      
-      regionsPlugin.clearRegions();
-      selectedRegion = regionsPlugin.addRegion({
+      wavesurfer.clearRegions();
+      selectedRegion = wavesurfer.addRegion({
         start: 0,
         end: wavesurfer.getDuration(),
         color: 'rgba(76, 175, 80, 0.3)'
@@ -247,7 +238,7 @@
       
       return new Promise((resolve) => {
         // Get audio element from wavesurfer
-        const originalAudio = wavesurfer.getMediaElement();
+        const originalAudio = wavesurfer.media;
         
         // Set up an audio context
         const audioContext = new (window.AudioContext || window.webkitAudioContext)();
