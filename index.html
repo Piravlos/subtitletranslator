@@ -4,9 +4,9 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Whisper Transcriber & Translator</title>
-  <!-- WaveSurfer.js for audio visualization and editing - using v5 for better compatibility -->
-  <script src="https://unpkg.com/wavesurfer.js@5.2.0/dist/wavesurfer.min.js"></script>
-  <script src="https://unpkg.com/wavesurfer.js@5.2.0/dist/plugin/wavesurfer.regions.min.js"></script>
+  <!-- WaveSurfer.js v6 which uses AudioWorkletNode instead of ScriptProcessorNode -->
+  <script src="https://unpkg.com/wavesurfer.js@6.6.3/dist/wavesurfer.min.js"></script>
+  <script src="https://unpkg.com/wavesurfer.js@6.6.3/dist/plugin/wavesurfer.regions.min.js"></script>
   <style>
     body { font-family: Arial, sans-serif; max-width: 900px; margin: 2rem auto; padding: 1rem; }
     label { display: block; margin: 1rem 0 0.5rem; }
@@ -18,10 +18,8 @@
     .progress-container { margin-top: 1rem; display: none; }
     progress { width: 100%; }
     #waveform { width: 100%; height: 128px; margin: 1rem 0; }
-    #audio-controls { margin-bottom: 1rem; }
     .download-section { margin: 1rem 0; }
     .editor-section { margin: 1rem 0; padding: 1rem; border: 1px solid #ddd; border-radius: 4px; }
-    .time-display { font-family: monospace; margin: 0.5rem 0; }
     .chunk-marker { position: absolute; width: 2px; background-color: red; height: 100%; z-index: 10; }
     #chunks-container { margin-top: 1rem; display: none; }
     #chunks-info { font-family: monospace; }
@@ -35,24 +33,17 @@
   <input type="password" id="apiKey" placeholder="sk-..." style="width: 100%;" />
 
   <div class="editor-section">
-    <h2>Audio Editor</h2>
+    <h2>Audio Visualization</h2>
     <label for="mediaFile">Audio/Video File:</label>
     <input type="file" id="mediaFile" accept="audio/*,video/*" />
     
     <div id="waveform"></div>
-    
-    <div class="time-display">
-      Selection: <span id="selection-start">0:00</span> - <span id="selection-end">0:00</span> 
-      (Duration: <span id="selection-duration">0:00</span>)
-    </div>
     
     <div id="audio-controls">
       <button id="playBtn" class="button-secondary" disabled>Play</button>
       <button id="pauseBtn" class="button-secondary" disabled>Pause</button>
       <button id="zoomInBtn" class="button-secondary" disabled>Zoom In</button>
       <button id="zoomOutBtn" class="button-secondary" disabled>Zoom Out</button>
-      <button id="createRegionBtn" class="button-secondary" disabled>Create Selection</button>
-      <button id="clearRegionsBtn" class="button-secondary" disabled>Clear Selection</button>
     </div>
   </div>
 
@@ -82,11 +73,10 @@
   </div>
 
   <div class="progress-container" id="progressContainer">
-    <p>Uploading: <span id="progressPercent">0%</span></p>
+    <p>Processing: <span id="progressPercent">0%</span></p>
     <progress id="progressBar" value="0" max="100"></progress>
   </div>
 
-  <button id="transcribeBtn" class="button-primary">Transcribe Selected Region</button>
   <button id="transcribeAllChunksBtn" class="button-primary" disabled>Transcribe All Chunks</button>
   <button id="translateBtn" class="button-primary" disabled>Translate</button>
 
@@ -103,8 +93,6 @@
     let originalSrt = '';
     let translatedSrt = '';
     let wavesurfer = null;
-    let selectedRegion = null;
-    let audioBlob = null;
     let detectedChunks = [];
     let audioContext = null;
     let audioBuffer = null;
@@ -116,9 +104,6 @@
     const progressPercent = document.getElementById('progressPercent');
     const downloadSrtBtn = document.getElementById('downloadSrtBtn');
     const downloadTranslatedSrtBtn = document.getElementById('downloadTranslatedSrtBtn');
-    const selectionStart = document.getElementById('selection-start');
-    const selectionEnd = document.getElementById('selection-end');
-    const selectionDuration = document.getElementById('selection-duration');
     const chunksContainer = document.getElementById('chunks-container');
     const chunksInfo = document.getElementById('chunks-info');
     const detectChunksBtn = document.getElementById('detectChunksBtn');
@@ -157,9 +142,12 @@
       return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')},${ms.toString().padStart(3, '0')}`;
     }
     
-    // Initialize WaveSurfer with v5 API
+    // Initialize WaveSurfer with v6 API
     function initWaveSurfer() {
-      // Create wavesurfer with regions plugin
+      // Create the regions plugin
+      const regionsPlugin = WaveSurfer.regions.create();
+      
+      // Create wavesurfer instance
       wavesurfer = WaveSurfer.create({
         container: '#waveform',
         waveColor: '#3498db',
@@ -171,13 +159,7 @@
         height: 100,
         barGap: 2,
         responsive: true,
-        plugins: [
-          WaveSurfer.regions.create({
-            regions: [],
-            dragSelection: true,
-            color: 'rgba(76, 175, 80, 0.3)'
-          })
-        ]
+        plugins: [regionsPlugin]
       });
       
       // Enable controls once audio is loaded
@@ -186,46 +168,8 @@
         document.getElementById('pauseBtn').disabled = false;
         document.getElementById('zoomInBtn').disabled = false;
         document.getElementById('zoomOutBtn').disabled = false;
-        document.getElementById('createRegionBtn').disabled = false;
-        document.getElementById('clearRegionsBtn').disabled = false;
         detectChunksBtn.disabled = false;
-        
-        // Initially create a region for the entire audio
-        const duration = wavesurfer.getDuration();
-        selectedRegion = wavesurfer.addRegion({
-          start: 0,
-          end: duration,
-          color: 'rgba(76, 175, 80, 0.3)'
-        });
-        
-        updateSelectionDisplay(0, duration);
       });
-      
-      // Update selection time when region is updated
-      wavesurfer.on('region-update-end', function(region) {
-        selectedRegion = region;
-        updateSelectionDisplay(region.start, region.end);
-      });
-      
-      // Save created regions
-      wavesurfer.on('region-created', function(region) {
-        // Remove previous regions
-        const regions = wavesurfer.regions.list;
-        Object.keys(regions).forEach(id => {
-          if (id !== region.id) {
-            regions[id].remove();
-          }
-        });
-        
-        selectedRegion = region;
-        updateSelectionDisplay(region.start, region.end);
-      });
-    }
-    
-    function updateSelectionDisplay(start, end) {
-      selectionStart.textContent = formatTime(start);
-      selectionEnd.textContent = formatTime(end);
-      selectionDuration.textContent = formatTime(end - start);
     }
     
     // Handle file selection
@@ -243,7 +187,7 @@
         initWaveSurfer();
       } else {
         // Clear existing regions
-        wavesurfer.clearRegions();
+        wavesurfer.regions?.clearRegions();
       }
       
       // Load the file into wavesurfer
@@ -267,11 +211,7 @@
     
     // Audio control buttons
     document.getElementById('playBtn').addEventListener('click', () => {
-      if (selectedRegion) {
-        selectedRegion.play();
-      } else {
-        wavesurfer.play();
-      }
+      wavesurfer.play();
     });
     
     document.getElementById('pauseBtn').addEventListener('click', () => {
@@ -286,28 +226,6 @@
     document.getElementById('zoomOutBtn').addEventListener('click', () => {
       const currentZoom = wavesurfer.params.minPxPerSec || 1;
       wavesurfer.zoom(Math.max(1, currentZoom / 1.5));
-    });
-    
-    document.getElementById('createRegionBtn').addEventListener('click', () => {
-      wavesurfer.clearRegions();
-      selectedRegion = wavesurfer.addRegion({
-        start: wavesurfer.getCurrentTime(),
-        end: Math.min(wavesurfer.getCurrentTime() + 30, wavesurfer.getDuration()),
-        color: 'rgba(76, 175, 80, 0.3)'
-      });
-      
-      updateSelectionDisplay(selectedRegion.start, selectedRegion.end);
-    });
-    
-    document.getElementById('clearRegionsBtn').addEventListener('click', () => {
-      wavesurfer.clearRegions();
-      selectedRegion = wavesurfer.addRegion({
-        start: 0,
-        end: wavesurfer.getDuration(),
-        color: 'rgba(76, 175, 80, 0.3)'
-      });
-      
-      updateSelectionDisplay(0, wavesurfer.getDuration());
     });
     
     // Function to detect silence for intelligent chunking
@@ -472,16 +390,20 @@
       totalHTML += '<tr><th style="text-align:left; border-bottom:1px solid #ddd; padding:5px;">Chunk</th><th style="text-align:left; border-bottom:1px solid #ddd; padding:5px;">Start</th><th style="text-align:left; border-bottom:1px solid #ddd; padding:5px;">End</th><th style="text-align:left; border-bottom:1px solid #ddd; padding:5px;">Duration</th><th style="text-align:left; border-bottom:1px solid #ddd; padding:5px;">Est. Size</th></tr>';
       
       // Add markers to the waveform
-      wavesurfer.clearRegions();
+      if (wavesurfer.regions) {
+        wavesurfer.regions.clearRegions();
+      }
       
       chunks.forEach((chunk, index) => {
-        // Add region for this chunk
-        wavesurfer.addRegion({
-          start: chunk.start,
-          end: chunk.end,
-          color: 'rgba(76, 175, 80, 0.2)',
-          id: `chunk_${index}`
-        });
+        // Add region for this chunk if plugin is available
+        if (wavesurfer.regions) {
+          wavesurfer.regions.addRegion({
+            start: chunk.start,
+            end: chunk.end,
+            color: 'rgba(76, 175, 80, 0.2)',
+            id: `chunk_${index}`
+          });
+        }
         
         // Add a vertical marker for chunk boundaries (except start)
         if (index > 0) {
@@ -534,187 +456,113 @@
       }
     });
     
-    // Extract the selected audio region
-    async function extractSelectedAudio() {
-      if (!wavesurfer || !selectedRegion) {
-        alert('Please load an audio file and select a region first.');
-        return null;
-      }
-      
-      return new Promise((resolve) => {
-        // Get audio element from wavesurfer
-        const originalAudio = wavesurfer.media;
-        
-        // Set up an audio context
-        const audioContext = new (window.AudioContext || window.webkitAudioContext)();
-        const source = audioContext.createMediaElementSource(originalAudio.cloneNode());
-        
-        // Create a destination to save the output
-        const destination = audioContext.createMediaStreamDestination();
-        source.connect(destination);
-        
-        // Create a MediaRecorder to capture the output
-        const mediaRecorder = new MediaRecorder(destination.stream);
-        const chunks = [];
-        
-        mediaRecorder.ondataavailable = (e) => {
-          chunks.push(e.data);
-        };
-        
-        mediaRecorder.onstop = () => {
-          const blob = new Blob(chunks, { type: 'audio/wav' });
-          audioBlob = blob;
-          resolve(blob);
-        };
-        
-        // Start recording and playback from the selected region
-        mediaRecorder.start();
-        
-        // Set the current time to the start of the selected region
-        originalAudio.currentTime = selectedRegion.start;
-        
-        // Play the audio
-        originalAudio.play();
-        
-        // Stop recording when reaching the end of the region
-        setTimeout(() => {
-          originalAudio.pause();
-          mediaRecorder.stop();
-        }, (selectedRegion.end - selectedRegion.start) * 1000);
-      });
-    }
-    
     // Extract audio for a specific chunk
     async function extractChunkAudio(chunk) {
-      if (!wavesurfer) {
+      if (!wavesurfer || !audioBuffer) {
         return null;
-      }
-      
-      // Temporarily create a region for this chunk
-      const tempRegion = {
-        start: chunk.start,
-        end: chunk.end
-      };
-      
-      return new Promise((resolve) => {
-        // Get audio element from wavesurfer
-        const originalAudio = wavesurfer.media;
-        
-        // Set up an audio context
-        const audioContext = new (window.AudioContext || window.webkitAudioContext)();
-        const source = audioContext.createMediaElementSource(originalAudio.cloneNode());
-        
-        // Create a destination to save the output
-        const destination = audioContext.createMediaStreamDestination();
-        source.connect(destination);
-        
-        // Create a MediaRecorder to capture the output
-        const mediaRecorder = new MediaRecorder(destination.stream);
-        const chunks = [];
-        
-        mediaRecorder.ondataavailable = (e) => {
-          chunks.push(e.data);
-        };
-        
-        mediaRecorder.onstop = () => {
-          const blob = new Blob(chunks, { type: 'audio/wav' });
-          resolve(blob);
-        };
-        
-        // Start recording and playback from the selected region
-        mediaRecorder.start();
-        
-        // Set the current time to the start of the chunk
-        originalAudio.currentTime = tempRegion.start;
-        
-        // Play the audio
-        originalAudio.play();
-        
-        // Stop recording when reaching the end of the region
-        setTimeout(() => {
-          originalAudio.pause();
-          mediaRecorder.stop();
-        }, (tempRegion.end - tempRegion.start) * 1000);
-      });
-    }
-
-    async function transcribe() {
-      const apiKey = document.getElementById('apiKey').value.trim();
-      
-      if (!apiKey) {
-        alert('Please provide an OpenAI API key.');
-        return;
-      }
-      
-      if (!wavesurfer || !selectedRegion) {
-        alert('Please load an audio file and select a region first.');
-        return;
       }
       
       try {
-        log('Extracting selected region...');
-        const extractedAudio = await extractSelectedAudio();
+        // Create a new AudioContext for processing
+        const context = new (window.AudioContext || window.webkitAudioContext)();
         
-        if (!extractedAudio) {
-          log('Failed to extract audio region.');
-          return;
-        }
+        // Calculate start and end samples
+        const sampleRate = audioBuffer.sampleRate;
+        const startSample = Math.floor(chunk.start * sampleRate);
+        const endSample = Math.floor(chunk.end * sampleRate);
+        const length = endSample - startSample;
         
-        log(`Extracted audio size: ${Math.round(extractedAudio.size / 1024 / 1024 * 100) / 100} MB`);
+        // Create a new buffer for the chunk
+        const chunkBuffer = context.createBuffer(
+          audioBuffer.numberOfChannels,
+          length,
+          sampleRate
+        );
         
-        // Check file size - OpenAI has a 25MB limit
-        if (extractedAudio.size > 25 * 1024 * 1024) {
-          alert('Selected region still exceeds 25MB limit. Please select a smaller region or use auto-chunking.');
-          return;
-        }
-
-        const form = new FormData();
-        form.append('file', extractedAudio, 'audio.wav');
-        form.append('model', 'whisper-1');
-        form.append('response_format', 'srt');
-
-        log('Sending to Whisper API...');
-        progressContainer.style.display = 'block';
-        
-        // Create a custom fetch with upload progress
-        const xhr = new XMLHttpRequest();
-        xhr.open('POST', 'https://api.openai.com/v1/audio/transcriptions');
-        xhr.setRequestHeader('Authorization', `Bearer ${apiKey}`);
-        
-        xhr.upload.onprogress = (event) => {
-          if (event.lengthComputable) {
-            const percentComplete = Math.round((event.loaded / event.total) * 100);
-            progressBar.value = percentComplete;
-            progressPercent.textContent = percentComplete + '%';
-          }
-        };
-        
-        xhr.onload = function() {
-          progressContainer.style.display = 'none';
+        // Copy data from the original buffer to the chunk buffer
+        for (let channel = 0; channel < audioBuffer.numberOfChannels; channel++) {
+          const originalData = audioBuffer.getChannelData(channel);
+          const chunkData = chunkBuffer.getChannelData(channel);
           
-          if (xhr.status === 200) {
-            originalSrt = xhr.responseText;
-            log('Received SRT.');
-            
-            // Enable the download button and translate button
-            downloadSrtBtn.disabled = false;
-            downloadSrtBtn.classList.remove('button-disabled');
-            downloadSrtBtn.classList.add('button-secondary');
-            
-            document.getElementById('translateBtn').disabled = false;
-          } else {
-            log('Error: ' + xhr.responseText);
+          for (let i = 0; i < length; i++) {
+            chunkData[i] = originalData[startSample + i];
           }
-        };
+        }
         
-        xhr.onerror = function() {
-          progressContainer.style.display = 'none';
-          log('Network error occurred');
-        };
+        // Convert to WAV
+        const offlineContext = new OfflineAudioContext(
+          audioBuffer.numberOfChannels,
+          length,
+          sampleRate
+        );
         
-        xhr.send(form);
+        const source = offlineContext.createBufferSource();
+        source.buffer = chunkBuffer;
+        source.connect(offlineContext.destination);
+        source.start(0);
+        
+        const renderedBuffer = await offlineContext.startRendering();
+        
+        // Convert to blob
+        const wavBlob = await bufferToWav(renderedBuffer);
+        return wavBlob;
       } catch (error) {
-        log('Error: ' + error.message);
+        log(`Error extracting chunk: ${error.message}`);
+        return null;
+      }
+    }
+    
+    // Helper function to convert AudioBuffer to WAV blob
+    function bufferToWav(buffer) {
+      return new Promise(resolve => {
+        const numberOfChannels = buffer.numberOfChannels;
+        const sampleRate = buffer.sampleRate;
+        const length = buffer.length;
+        
+        // Create the WAV file
+        const wavFile = new ArrayBuffer(44 + length * numberOfChannels * 2);
+        const view = new DataView(wavFile);
+        
+        // Write the WAV header
+        // "RIFF" chunk descriptor
+        writeString(view, 0, 'RIFF');
+        view.setUint32(4, 36 + length * numberOfChannels * 2, true);
+        writeString(view, 8, 'WAVE');
+        
+        // "fmt " sub-chunk
+        writeString(view, 12, 'fmt ');
+        view.setUint32(16, 16, true); // subchunk1size
+        view.setUint16(20, 1, true); // audio format (1 = PCM)
+        view.setUint16(22, numberOfChannels, true);
+        view.setUint32(24, sampleRate, true);
+        view.setUint32(28, sampleRate * numberOfChannels * 2, true); // byte rate
+        view.setUint16(32, numberOfChannels * 2, true); // block align
+        view.setUint16(34, 16, true); // bits per sample
+        
+        // "data" sub-chunk
+        writeString(view, 36, 'data');
+        view.setUint32(40, length * numberOfChannels * 2, true);
+        
+        // Write the PCM samples
+        const offset = 44;
+        let pos = 0;
+        for (let i = 0; i < length; i++) {
+          for (let channel = 0; channel < numberOfChannels; channel++) {
+            const sample = Math.max(-1, Math.min(1, buffer.getChannelData(channel)[i]));
+            view.setInt16(offset + pos, sample < 0 ? sample * 0x8000 : sample * 0x7FFF, true);
+            pos += 2;
+          }
+        }
+        
+        // Create the Blob
+        const blob = new Blob([wavFile], { type: 'audio/wav' });
+        resolve(blob);
+      });
+      
+      function writeString(view, offset, string) {
+        for (let i = 0; i < string.length; i++) {
+          view.setUint8(offset + i, string.charCodeAt(i));
+        }
       }
     }
     
@@ -953,7 +801,6 @@
       document.body.removeChild(a);
     });
 
-    document.getElementById('transcribeBtn').addEventListener('click', transcribe);
     document.getElementById('transcribeAllChunksBtn').addEventListener('click', transcribeAllChunks);
     document.getElementById('translateBtn').addEventListener('click', translateSrt);
   </script>
