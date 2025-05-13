@@ -4,9 +4,10 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Whisper Transcriber & Translator</title>
-  <!-- WaveSurfer.js v6 which uses AudioWorkletNode instead of ScriptProcessorNode -->
-  <script src="https://unpkg.com/wavesurfer.js@6.6.3/dist/wavesurfer.min.js"></script>
-  <script src="https://unpkg.com/wavesurfer.js@6.6.3/dist/plugin/wavesurfer.regions.min.js"></script>
+  <!-- WaveSurfer.js v7 core -->
+  <script src="https://unpkg.com/wavesurfer.js@7/dist/wavesurfer.min.js"></script>
+  <!-- Regions plugin for v7 -->
+  <script src="https://unpkg.com/wavesurfer.js@7/dist/plugins/regions.min.js"></script>
   <style>
     body { font-family: Arial, sans-serif; max-width: 900px; margin: 2rem auto; padding: 1rem; }
     label { display: block; margin: 1rem 0 0.5rem; }
@@ -143,10 +144,10 @@
       return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')},${ms.toString().padStart(3, '0')}`;
     }
     
-    // Initialize WaveSurfer with v6 API
+    // Initialize WaveSurfer with v7 API
     function initWaveSurfer() {
       // Create the regions plugin
-      regionsPlugin = WaveSurfer.regions.create();
+      regionsPlugin = WaveSurfer.Regions.create();
       
       // Create wavesurfer instance
       wavesurfer = WaveSurfer.create({
@@ -176,9 +177,9 @@
     // Function to clear all regions in WaveSurfer
     function clearAllRegions() {
       if (regionsPlugin) {
-        // In WaveSurfer.js v6.6.3, we need to destroy and recreate the regions plugin
+        // In WaveSurfer.js v7, we destroy and recreate the regions plugin
         wavesurfer.destroyPlugin('regions');
-        regionsPlugin = WaveSurfer.regions.create();
+        regionsPlugin = WaveSurfer.Regions.create();
         wavesurfer.registerPlugin(regionsPlugin);
       }
     }
@@ -230,12 +231,12 @@
     });
     
     document.getElementById('zoomInBtn').addEventListener('click', () => {
-      const currentZoom = wavesurfer.params.minPxPerSec || 1;
+      const currentZoom = wavesurfer.getOptions().minPxPerSec || 1;
       wavesurfer.zoom(currentZoom * 1.5);
     });
     
     document.getElementById('zoomOutBtn').addEventListener('click', () => {
-      const currentZoom = wavesurfer.params.minPxPerSec || 1;
+      const currentZoom = wavesurfer.getOptions().minPxPerSec || 1;
       wavesurfer.zoom(Math.max(1, currentZoom / 1.5));
     });
     
