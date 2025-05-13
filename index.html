@@ -338,8 +338,11 @@
       // Assuming 16bit stereo at 44.1kHz for WAV
       const bytesPerSecond = 44100 * 4; // 44.1kHz * (2 channels * 2 bytes per sample)
       
-      // Target size in bytes (slightly under 25MB to be safe)
-      const targetChunkSizeBytes = 23 * 1024 * 1024;
+      // API limit size in bytes (25MB)
+      const maxChunkSizeBytes = 25 * 1024 * 1024;
+      
+      // Target size in bytes (reduced to 22MB to be more conservative)
+      const targetChunkSizeBytes = 22 * 1024 * 1024;
       
       // Calculate target duration per chunk
       const targetChunkDuration = targetChunkSizeBytes / bytesPerSecond;
@@ -358,7 +361,10 @@
         
         for (const silencePoint of silencePoints) {
           // Only consider silence points past our starting point and not too far past ideal end
-          if (silencePoint > chunkStart && silencePoint < idealEnd + 30) {
+          // But also ensure we don't create chunks larger than allowed
+          if (silencePoint > chunkStart && 
+              silencePoint < idealEnd + 30 && 
+              (silencePoint - chunkStart) * bytesPerSecond < maxChunkSizeBytes) {
             const distance = Math.abs(silencePoint - idealEnd);
             if (distance < minDistance) {
               minDistance = distance;
@@ -367,8 +373,36 @@
           }
         }
         
-        // If we couldn't find a good break point, just use the ideal end
-        if (bestBreakPoint === idealEnd && idealEnd < totalDuration) {
+        // If we couldn't find a good break point, or if the chunk would be too large,
+        // force a break at a safe point that's guaranteed to be under limit
+        if (bestBreakPoint === idealEnd && idealEnd < totalDuration || 
+            (bestBreakPoint - chunkStart) * bytesPerSecond >= maxChunkSizeBytes) {
+          
+          // Calculate a safe end time that's guaranteed to be under the limit
+          const safeEndTime = chunkStart + (maxChunkSizeBytes * 0.95) / bytesPerSecond;
+          
+          // Find closest silence point under this safe end time
+          let safeSilencePoint = null;
+          let minSafeDistance = Number.MAX_VALUE;
+          
+          for (const silencePoint of silencePoints) {
+            if (silencePoint > chunkStart && silencePoint < safeEndTime) {
+              const distance = safeEndTime - silencePoint;
+              if (distance < minSafeDistance) {
+                minSafeDistance = distance;
+                safeSilencePoint = silencePoint;
+              }
+            }
+          }
+          
+          if (safeSilencePoint) {
+            bestBreakPoint = safeSilencePoint;
+          } else {
+            // If no silence points are found, just use the safe end time
+            bestBreakPoint = safeEndTime;
+            log(`Warning: No natural pause found near the ${formatTime(bestBreakPoint)} mark`);
+          }
+        } else if (bestBreakPoint === idealEnd && idealEnd < totalDuration) {
           log(`Warning: No natural pause found near the ${formatTime(idealEnd)} mark`);
         }
         
@@ -750,16 +784,16 @@
       const apiKey = document.getElementById('apiKey').value.trim();
       if (!originalSrt) return;
       
-      log('Translating SRT with GPT-4o...');
+      log('Translating SRT with GPT-4.1...');
       const systemMsg = 'You are a helpful assistant that translates subtitles while preserving the timing and SRT structure exactly.';
       const userMsg = `Translate the following SRT to the target language, preserving numbering and timestamps exactly:\n\n${originalSrt}`;
       const payload = {
-        model: 'gpt-4o', 
+        model: 'gpt-4.1', 
         messages: [
           { role: 'system', content: systemMsg },
           { role: 'user', content: userMsg }
         ], 
-        max_tokens: 20000
+        max_tokens: 32000
       };
       const resp = await fetch('https://api.openai.com/v1/chat/completions', {
         method: 'POST', 
