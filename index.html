@@ -176,10 +176,10 @@
     // Function to clear all regions in WaveSurfer
     function clearAllRegions() {
       if (regionsPlugin) {
-        // Get all regions and remove them one by one
-        Object.keys(regionsPlugin.getRegions()).forEach(id => {
-          regionsPlugin.getRegions()[id].remove();
-        });
+        // In WaveSurfer.js v6.6.3, we need to destroy and recreate the regions plugin
+        wavesurfer.destroyPlugin('regions');
+        regionsPlugin = WaveSurfer.regions.create();
+        wavesurfer.registerPlugin(regionsPlugin);
       }
     }
 
