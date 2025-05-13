@@ -4,8 +4,6 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Whisper Transcriber & Translator</title>
-  <!-- Load FFmpeg.wasm runtime -->
-  <script src="https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.11.8/dist/ffmpeg.min.js"></script>
   <style>
     body { font-family: Arial, sans-serif; max-width: 800px; margin: 2rem auto; padding: 1rem; }
     label { display: block; margin: 1rem 0 0.5rem; }
@@ -27,15 +25,12 @@
   <h2>Log</h2>
   <div id="log"></div>
 
-  <script>
-    // Ensure FFmpeg global is defined
-    if (typeof FFmpeg === 'undefined') {
-      console.error('FFmpeg global not found; check that the <script> import is before this code.');
-    }
-    const { createFFmpeg, fetchFile } = FFmpeg;
+  <script type="module">
+    import { createFFmpeg, fetchFile } from 'https://unpkg.com/@ffmpeg/ffmpeg@0.12.10/dist/ffmpeg.esm.js';
+
     const ffmpeg = createFFmpeg({
       log: true,
-      corePath: 'https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.11.8/dist/ffmpeg-core.js',
+      corePath: 'https://unpkg.com/@ffmpeg/ffmpeg@0.12.10/dist/ffmpeg-core.js',
       worker: false
     });
     let originalSrt = '';
