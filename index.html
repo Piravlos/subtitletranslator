@@ -93,6 +93,7 @@
     let originalSrt = '';
     let translatedSrt = '';
     let wavesurfer = null;
+    let regionsPlugin = null;
     let detectedChunks = [];
     let audioContext = null;
     let audioBuffer = null;
@@ -145,7 +146,7 @@
     // Initialize WaveSurfer with v6 API
     function initWaveSurfer() {
       // Create the regions plugin
-      const regionsPlugin = WaveSurfer.regions.create();
+      regionsPlugin = WaveSurfer.regions.create();
       
       // Create wavesurfer instance
       wavesurfer = WaveSurfer.create({
@@ -187,7 +188,9 @@
         initWaveSurfer();
       } else {
         // Clear existing regions
-        wavesurfer.regions?.clearRegions();
+        if (regionsPlugin) {
+          regionsPlugin.clearRegions();
+        }
       }
       
       // Load the file into wavesurfer
@@ -390,14 +393,14 @@
       totalHTML += '<tr><th style="text-align:left; border-bottom:1px solid #ddd; padding:5px;">Chunk</th><th style="text-align:left; border-bottom:1px solid #ddd; padding:5px;">Start</th><th style="text-align:left; border-bottom:1px solid #ddd; padding:5px;">End</th><th style="text-align:left; border-bottom:1px solid #ddd; padding:5px;">Duration</th><th style="text-align:left; border-bottom:1px solid #ddd; padding:5px;">Est. Size</th></tr>';
       
       // Add markers to the waveform
-      if (wavesurfer.regions) {
-        wavesurfer.regions.clearRegions();
+      if (regionsPlugin) {
+        regionsPlugin.clearRegions();
       }
       
       chunks.forEach((chunk, index) => {
         // Add region for this chunk if plugin is available
-        if (wavesurfer.regions) {
-          wavesurfer.regions.addRegion({
+        if (regionsPlugin) {
+          regionsPlugin.addRegion({
             start: chunk.start,
             end: chunk.end,
             color: 'rgba(76, 175, 80, 0.2)',
