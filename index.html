@@ -173,6 +173,14 @@
       });
     }
     
+    // Function to clear all regions in WaveSurfer
+    function clearAllRegions() {
+      if (regionsPlugin) {
+        // Use clear() method in WaveSurfer.js v6
+        regionsPlugin.clear();
+      }
+    }
+
     // Handle file selection
     document.getElementById('mediaFile').addEventListener('change', async function(e) {
       const file = e.target.files[0];
@@ -188,9 +196,7 @@
         initWaveSurfer();
       } else {
         // Clear existing regions
-        if (regionsPlugin) {
-          regionsPlugin.clearRegions();
-        }
+        clearAllRegions();
       }
       
       // Load the file into wavesurfer
@@ -393,9 +399,7 @@
       totalHTML += '<tr><th style="text-align:left; border-bottom:1px solid #ddd; padding:5px;">Chunk</th><th style="text-align:left; border-bottom:1px solid #ddd; padding:5px;">Start</th><th style="text-align:left; border-bottom:1px solid #ddd; padding:5px;">End</th><th style="text-align:left; border-bottom:1px solid #ddd; padding:5px;">Duration</th><th style="text-align:left; border-bottom:1px solid #ddd; padding:5px;">Est. Size</th></tr>';
       
       // Add markers to the waveform
-      if (regionsPlugin) {
-        regionsPlugin.clearRegions();
-      }
+      clearAllRegions();
       
       chunks.forEach((chunk, index) => {
         // Add region for this chunk if plugin is available
