@@ -26,11 +26,12 @@
   <div id="log"></div>
 
   <script type="module">
-    import { createFFmpeg, fetchFile } from 'https://unpkg.com/@ffmpeg/ffmpeg@0.12.10/dist/ffmpeg.esm.js';
+    // Import from jsDelivr which sets proper CORS headers
+    import { createFFmpeg, fetchFile } from 'https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.12.10/dist/ffmpeg.esm.js';
 
     const ffmpeg = createFFmpeg({
       log: true,
-      corePath: 'https://unpkg.com/@ffmpeg/ffmpeg@0.12.10/dist/ffmpeg-core.js',
+      corePath: 'https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.12.10/dist/ffmpeg-core.js',
       worker: false
     });
     let originalSrt = '';
