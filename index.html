@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Whisper Transcriber & Translator</title>
+  <style>
+    body { font-family: Arial, sans-serif; max-width: 800px; margin: 2rem auto; padding: 1rem; }
+    label { display: block; margin: 1rem 0 0.5rem; }
+    button { margin: 0.5rem 0; padding: 0.5rem 1rem; }
+    #log { white-space: pre-wrap; background: #f4f4f4; padding: 1rem; border-radius: 4px; max-height: 200px; overflow-y: scroll; }
+  </style>
+  <!-- Load FFmpeg.wasm via CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg/dist/ffmpeg.min.js"></script>
+</head>
+<body>
+  <h1>Whisper Transcriber & Translator</h1>
+  <label for="apiKey">OpenAI API Key:</label>
+  <input type="password" id="apiKey" placeholder="sk-..." style="width: 100%;" />
+
+  <label for="mediaFile">Audio/Video File:</label>
+  <input type="file" id="mediaFile" accept="audio/*,video/*" />
+
+  <button id="transcribeBtn">Transcribe & Generate SRT</button>
+  <button id="translateBtn" disabled>Translate SRT</button>
+
+  <h2>Log</h2>
+  <div id="log"></div>
+
+  <script>
+    // Use global FFmpeg
+    const { createFFmpeg, fetchFile } = FFmpeg;
+    // Ensure you have downloaded ffmpeg-core.js and ffmpeg-core.wasm into the same directory as this HTML file.
+    const ffmpeg = createFFmpeg({
+      log: true,
+      corePath: './ffmpeg-core.js',
+      worker: false
+    });
+    let originalSrt = '';
+
+    const logDiv = document.getElementById('log');
+    function log(msg) {
+      logDiv.textContent += msg + '\n';
+      logDiv.scrollTop = logDiv.scrollHeight;
+    }
+
+    async function ensureFFmpeg() {
+      if (!ffmpeg.isLoaded()) {
+        log('Loading FFmpeg...');
+        await ffmpeg.load();
+        log('FFmpeg loaded');
+      }
+    }
+
+    async function compressTo96kbps(file) {
+      await ensureFFmpeg();
+      log('Compressing to 96kbps...');
+      const name = 'input';
+      const inputExt = file.name.split('.').pop();
+      ffmpeg.FS('writeFile', `${name}.${inputExt}`, await fetchFile(file));
+      await ffmpeg.run(
+        '-i', `${name}.${inputExt}`,
+        '-b:a', '96k',
+        '-vn',
+        'output.mp3'
+      );
+      const data = ffmpeg.FS('readFile', 'output.mp3');
+      log('Compression done');
+      return new Blob([data.buffer], { type: 'audio/mpeg' });
+    }
+
+    async function transcribe() {
+      const apiKey = document.getElementById('apiKey').value.trim();
+      const fileInput = document.getElementById('mediaFile');
+      if (!apiKey || !fileInput.files.length) {
+        alert('Please provide API key and file.');
+        return;
+      }
+      const file = fileInput.files[0];
+      const compressedBlob = await compressTo96kbps(file);
+      if (compressedBlob.size > 25 * 1024 * 1024) {
+        alert('Compressed file still exceeds 25MB limit. Please choose a shorter file.');
+        return;
+      }
+
+      log('Sending to Whisper...');
+      const form = new FormData();
+      form.append('file', compressedBlob, 'audio.mp3');
+      form.append('model', 'whisper-1');
+      form.append('response_format', 'srt');
+
+      const resp = await fetch('https://api.openai.com/v1/audio/transcriptions', {
+        method: 'POST', headers: { Authorization: `Bearer ${apiKey}` }, body: form
+      });
+      if (!resp.ok) {
+        const err = await resp.text();
+        log('Error: ' + err);
+        return;
+      }
+      originalSrt = await resp.text();
+      log('Received SRT.');
+      const url = URL.createObjectURL(new Blob([originalSrt], { type: 'text/plain' }));
+      const a = document.createElement('a'); a.href = url; a.download = 'transcript.srt'; a.textContent = 'Download .srt';
+      logDiv.appendChild(a); logDiv.appendChild(document.createTextNode('\n'));
+      document.getElementById('translateBtn').disabled = false;
+    }
+
+    async function translateSrt() {
+      const apiKey = document.getElementById('apiKey').value.trim();
+      if (!originalSrt) return;
+      log('Translating SRT with GPT-4o...');
+      const systemMsg = 'You are a helpful assistant that translates subtitles while preserving the timing and SRT structure exactly.';
+      const userMsg = `Translate the following SRT to the target language, preserving numbering and timestamps exactly:\n\n${originalSrt}`;
+      const payload = {
+        model: 'gpt-4o', messages: [
+          { role: 'system', content: systemMsg },
+          { role: 'user', content: userMsg }
+        ], max_tokens: 20000
+      };
+      const resp = await fetch('https://api.openai.com/v1/chat/completions', {
+        method: 'POST', headers: {
+          'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}`
+        }, body: JSON.stringify(payload)
+      });
+      if (!resp.ok) {
+        const err = await resp.text(); log('Error: ' + err); return;
+      }
+      const data = await resp.json();
+      const translated = data.choices[0].message.content;
+      log('Translation done.');
+      const url = URL.createObjectURL(new Blob([translated], { type: 'text/plain' }));
+      const a = document.createElement('a'); a.href = url; a.download = 'translated.srt'; a.textContent = 'Download Translated .srt';
+      logDiv.appendChild(a); logDiv.appendChild(document.createTextNode('\n'));
+    }
+
+    document.getElementById('transcribeBtn').addEventListener('click', transcribe);
+    document.getElementById('translateBtn').addEventListener('click', translateSrt);
+  </script>
+</body>
+</html>
