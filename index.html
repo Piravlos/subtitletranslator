@@ -1,5 +1,17 @@
-<!-- Load FFmpeg.wasm runtime -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Whisper Transcriber & Translator</title>
+  <!-- Load FFmpeg.wasm runtime -->
   <script src="https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.11.8/dist/ffmpeg.min.js"></script>
+  <style>
+    body { font-family: Arial, sans-serif; max-width: 800px; margin: 2rem auto; padding: 1rem; }
+    label { display: block; margin: 1rem 0 0.5rem; }
+    button { margin: 0.5rem 0; padding: 0.5rem 1rem; }
+    #log { white-space: pre-wrap; background: #f4f4f4; padding: 1rem; border-radius: 4px; max-height: 200px; overflow-y: scroll; }
+  </style>
 </head>
 <body>
   <h1>Whisper Transcriber & Translator</h1>
@@ -16,10 +28,11 @@
   <div id="log"></div>
 
   <script>
-    // Use global FFmpeg
+    // Ensure FFmpeg global is defined
+    if (typeof FFmpeg === 'undefined') {
+      console.error('FFmpeg global not found; check that the <script> import is before this code.');
+    }
     const { createFFmpeg, fetchFile } = FFmpeg;
-    // Ensure you have downloaded ffmpeg-core.js and ffmpeg-core.wasm into the same directory as this HTML file.
-    // Configure FFmpeg to load its core assets via CDN
     const ffmpeg = createFFmpeg({
       log: true,
       corePath: 'https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.11.8/dist/ffmpeg-core.js',
@@ -44,11 +57,10 @@
     async function compressTo96kbps(file) {
       await ensureFFmpeg();
       log('Compressing to 96kbps...');
-      const name = 'input';
       const inputExt = file.name.split('.').pop();
-      ffmpeg.FS('writeFile', `${name}.${inputExt}`, await fetchFile(file));
+      ffmpeg.FS('writeFile', `input.${inputExt}`, await fetchFile(file));
       await ffmpeg.run(
-        '-i', `${name}.${inputExt}`,
+        '-i', `input.${inputExt}`,
         '-b:a', '96k',
         '-vn',
         'output.mp3'
