@@ -4,13 +4,24 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Whisper Transcriber & Translator</title>
+  <!-- WaveSurfer.js for audio visualization and editing -->
+  <script src="https://unpkg.com/wavesurfer.js@6.6.3"></script>
+  <script src="https://unpkg.com/wavesurfer.js@6.6.3/dist/plugin/wavesurfer.regions.min.js"></script>
   <style>
-    body { font-family: Arial, sans-serif; max-width: 800px; margin: 2rem auto; padding: 1rem; }
+    body { font-family: Arial, sans-serif; max-width: 900px; margin: 2rem auto; padding: 1rem; }
     label { display: block; margin: 1rem 0 0.5rem; }
-    button { margin: 0.5rem 0; padding: 0.5rem 1rem; }
+    button { margin: 0.5rem 0.5rem 0.5rem 0; padding: 0.5rem 1rem; cursor: pointer; }
+    .button-primary { background-color: #4CAF50; color: white; border: none; border-radius: 4px; }
+    .button-secondary { background-color: #3498db; color: white; border: none; border-radius: 4px; }
+    .button-disabled { background-color: #cccccc; color: #666666; border: none; border-radius: 4px; cursor: not-allowed; }
     #log { white-space: pre-wrap; background: #f4f4f4; padding: 1rem; border-radius: 4px; max-height: 200px; overflow-y: scroll; }
     .progress-container { margin-top: 1rem; display: none; }
     progress { width: 100%; }
+    #waveform { width: 100%; height: 128px; margin: 1rem 0; }
+    #audio-controls { margin-bottom: 1rem; }
+    .download-section { margin: 1rem 0; }
+    .editor-section { margin: 1rem 0; padding: 1rem; border: 1px solid #ddd; border-radius: 4px; }
+    .time-display { font-family: monospace; margin: 0.5rem 0; }
   </style>
 </head>
 <body>
@@ -18,109 +29,344 @@
   <label for="apiKey">OpenAI API Key:</label>
   <input type="password" id="apiKey" placeholder="sk-..." style="width: 100%;" />
 
-  <label for="mediaFile">Audio/Video File:</label>
-  <input type="file" id="mediaFile" accept="audio/*,video/*" />
+  <div class="editor-section">
+    <h2>Audio Editor</h2>
+    <label for="mediaFile">Audio/Video File:</label>
+    <input type="file" id="mediaFile" accept="audio/*,video/*" />
+    
+    <div id="waveform"></div>
+    
+    <div class="time-display">
+      Selection: <span id="selection-start">0:00</span> - <span id="selection-end">0:00</span> 
+      (Duration: <span id="selection-duration">0:00</span>)
+    </div>
+    
+    <div id="audio-controls">
+      <button id="playBtn" class="button-secondary" disabled>Play</button>
+      <button id="pauseBtn" class="button-secondary" disabled>Pause</button>
+      <button id="zoomInBtn" class="button-secondary" disabled>Zoom In</button>
+      <button id="zoomOutBtn" class="button-secondary" disabled>Zoom Out</button>
+      <button id="createRegionBtn" class="button-secondary" disabled>Create Selection</button>
+      <button id="clearRegionsBtn" class="button-secondary" disabled>Clear Selection</button>
+    </div>
+  </div>
+
   <div class="progress-container" id="progressContainer">
     <p>Uploading: <span id="progressPercent">0%</span></p>
     <progress id="progressBar" value="0" max="100"></progress>
   </div>
 
-  <button id="transcribeBtn">Transcribe & Generate SRT</button>
-  <button id="translateBtn" disabled>Translate SRT</button>
+  <button id="transcribeBtn" class="button-primary">Transcribe Selected Region</button>
+  <button id="translateBtn" class="button-primary" disabled>Translate</button>
+
+  <div class="download-section">
+    <h2>Downloads</h2>
+    <button id="downloadSrtBtn" class="button-disabled" disabled>Download Transcript (.srt)</button>
+    <button id="downloadTranslatedSrtBtn" class="button-disabled" disabled>Download Translation (.srt)</button>
+  </div>
 
   <h2>Log</h2>
   <div id="log"></div>
 
   <script>
     let originalSrt = '';
+    let translatedSrt = '';
+    let wavesurfer = null;
+    let selectedRegion = null;
+    let audioBlob = null;
+    
     const logDiv = document.getElementById('log');
     const progressContainer = document.getElementById('progressContainer');
     const progressBar = document.getElementById('progressBar');
     const progressPercent = document.getElementById('progressPercent');
+    const downloadSrtBtn = document.getElementById('downloadSrtBtn');
+    const downloadTranslatedSrtBtn = document.getElementById('downloadTranslatedSrtBtn');
+    const selectionStart = document.getElementById('selection-start');
+    const selectionEnd = document.getElementById('selection-end');
+    const selectionDuration = document.getElementById('selection-duration');
 
     function log(msg) {
       logDiv.textContent += msg + '\n';
       logDiv.scrollTop = logDiv.scrollHeight;
     }
+    
+    function formatTime(seconds) {
+      const minutes = Math.floor(seconds / 60);
+      const secs = Math.floor(seconds % 60);
+      return `${minutes}:${secs.toString().padStart(2, '0')}`;
+    }
+    
+    // Initialize WaveSurfer
+    function initWaveSurfer() {
+      wavesurfer = WaveSurfer.create({
+        container: '#waveform',
+        waveColor: '#3498db',
+        progressColor: '#2980b9',
+        cursorColor: '#333',
+        barWidth: 2,
+        barRadius: 3,
+        cursorWidth: 1,
+        height: 100,
+        barGap: 2,
+        responsive: true,
+        plugins: [
+          WaveSurfer.regions.create({
+            regions: [],
+            dragSelection: true,
+            color: 'rgba(76, 175, 80, 0.3)'
+          })
+        ]
+      });
+      
+      // Enable controls once audio is loaded
+      wavesurfer.on('ready', function() {
+        document.getElementById('playBtn').disabled = false;
+        document.getElementById('pauseBtn').disabled = false;
+        document.getElementById('zoomInBtn').disabled = false;
+        document.getElementById('zoomOutBtn').disabled = false;
+        document.getElementById('createRegionBtn').disabled = false;
+        document.getElementById('clearRegionsBtn').disabled = false;
+        
+        // Initially create a region for the entire audio
+        const duration = wavesurfer.getDuration();
+        selectedRegion = wavesurfer.regions.create({
+          start: 0,
+          end: duration,
+          color: 'rgba(76, 175, 80, 0.3)'
+        });
+        updateSelectionDisplay(0, duration);
+      });
+      
+      // Update selection time when region is updated
+      wavesurfer.on('region-update-end', function(region) {
+        selectedRegion = region;
+        updateSelectionDisplay(region.start, region.end);
+      });
+      
+      // Save created regions
+      wavesurfer.on('region-created', function(region) {
+        // Remove previous regions
+        Object.keys(wavesurfer.regions.list).forEach(id => {
+          if (id !== region.id) {
+            wavesurfer.regions.list[id].remove();
+          }
+        });
+        selectedRegion = region;
+        updateSelectionDisplay(region.start, region.end);
+      });
+    }
+    
+    function updateSelectionDisplay(start, end) {
+      selectionStart.textContent = formatTime(start);
+      selectionEnd.textContent = formatTime(end);
+      selectionDuration.textContent = formatTime(end - start);
+    }
+    
+    // Handle file selection
+    document.getElementById('mediaFile').addEventListener('change', function(e) {
+      const file = e.target.files[0];
+      if (!file) return;
+      
+      // If wavesurfer hasn't been initialized yet, initialize it
+      if (!wavesurfer) {
+        initWaveSurfer();
+      } else {
+        // Clear existing regions
+        wavesurfer.regions.clear();
+      }
+      
+      const fileURL = URL.createObjectURL(file);
+      wavesurfer.load(fileURL);
+      log(`Loaded file: ${file.name}`);
+    });
+    
+    // Audio control buttons
+    document.getElementById('playBtn').addEventListener('click', () => {
+      if (selectedRegion) {
+        selectedRegion.play();
+      } else {
+        wavesurfer.play();
+      }
+    });
+    
+    document.getElementById('pauseBtn').addEventListener('click', () => {
+      wavesurfer.pause();
+    });
+    
+    document.getElementById('zoomInBtn').addEventListener('click', () => {
+      const currentZoom = wavesurfer.params.minPxPerSec;
+      wavesurfer.zoom(currentZoom * 1.5);
+    });
+    
+    document.getElementById('zoomOutBtn').addEventListener('click', () => {
+      const currentZoom = wavesurfer.params.minPxPerSec;
+      wavesurfer.zoom(currentZoom / 1.5);
+    });
+    
+    document.getElementById('createRegionBtn').addEventListener('click', () => {
+      wavesurfer.regions.clear();
+      selectedRegion = wavesurfer.regions.create({
+        start: wavesurfer.getCurrentTime(),
+        end: Math.min(wavesurfer.getCurrentTime() + 30, wavesurfer.getDuration()),
+        color: 'rgba(76, 175, 80, 0.3)'
+      });
+      updateSelectionDisplay(selectedRegion.start, selectedRegion.end);
+    });
+    
+    document.getElementById('clearRegionsBtn').addEventListener('click', () => {
+      wavesurfer.regions.clear();
+      selectedRegion = wavesurfer.regions.create({
+        start: 0,
+        end: wavesurfer.getDuration(),
+        color: 'rgba(76, 175, 80, 0.3)'
+      });
+      updateSelectionDisplay(0, wavesurfer.getDuration());
+    });
+    
+    // Extract the selected audio region
+    async function extractSelectedAudio() {
+      if (!wavesurfer || !selectedRegion) {
+        alert('Please load an audio file and select a region first.');
+        return null;
+      }
+      
+      return new Promise((resolve) => {
+        // Get audio element from wavesurfer
+        const originalAudio = wavesurfer.getMediaElement();
+        
+        // Set up an audio context
+        const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        const source = audioContext.createMediaElementSource(originalAudio.cloneNode());
+        
+        // Create a destination to save the output
+        const destination = audioContext.createMediaStreamDestination();
+        source.connect(destination);
+        
+        // Create a MediaRecorder to capture the output
+        const mediaRecorder = new MediaRecorder(destination.stream);
+        const chunks = [];
+        
+        mediaRecorder.ondataavailable = (e) => {
+          chunks.push(e.data);
+        };
+        
+        mediaRecorder.onstop = () => {
+          const blob = new Blob(chunks, { type: 'audio/wav' });
+          audioBlob = blob;
+          resolve(blob);
+        };
+        
+        // Start recording and playback from the selected region
+        mediaRecorder.start();
+        
+        // Set the current time to the start of the selected region
+        originalAudio.currentTime = selectedRegion.start;
+        
+        // Play the audio
+        originalAudio.play();
+        
+        // Stop recording when reaching the end of the region
+        setTimeout(() => {
+          originalAudio.pause();
+          mediaRecorder.stop();
+        }, (selectedRegion.end - selectedRegion.start) * 1000);
+      });
+    }
 
     async function transcribe() {
       const apiKey = document.getElementById('apiKey').value.trim();
-      const fileInput = document.getElementById('mediaFile');
       
-      if (!apiKey || !fileInput.files.length) {
-        alert('Please provide API key and file.');
+      if (!apiKey) {
+        alert('Please provide an OpenAI API key.');
         return;
       }
       
-      const file = fileInput.files[0];
-      
-      // Check file size - OpenAI has a 25MB limit
-      if (file.size > 25 * 1024 * 1024) {
-        alert('File exceeds 25MB limit. Please choose a smaller file or compress it before uploading.');
+      if (!wavesurfer || !selectedRegion) {
+        alert('Please load an audio file and select a region first.');
         return;
       }
-
-      const form = new FormData();
-      form.append('file', file);
-      form.append('model', 'whisper-1');
-      form.append('response_format', 'srt');
-
-      log('Sending to Whisper API...');
-      progressContainer.style.display = 'block';
       
-      // Create a custom fetch with upload progress
-      const xhr = new XMLHttpRequest();
-      xhr.open('POST', 'https://api.openai.com/v1/audio/transcriptions');
-      xhr.setRequestHeader('Authorization', `Bearer ${apiKey}`);
-      
-      xhr.upload.onprogress = (event) => {
-        if (event.lengthComputable) {
-          const percentComplete = Math.round((event.loaded / event.total) * 100);
-          progressBar.value = percentComplete;
-          progressPercent.textContent = percentComplete + '%';
-        }
-      };
-      
-      xhr.onload = function() {
-        progressContainer.style.display = 'none';
+      try {
+        log('Extracting selected region...');
+        const extractedAudio = await extractSelectedAudio();
         
-        if (xhr.status === 200) {
-          originalSrt = xhr.responseText;
-          log('Received SRT.');
-          const url = URL.createObjectURL(new Blob([originalSrt], { type: 'text/plain' }));
-          const a = document.createElement('a'); 
-          a.href = url; 
-          a.download = 'transcript.srt'; 
-          a.textContent = 'Download .srt';
-          logDiv.appendChild(a); 
-          logDiv.appendChild(document.createTextNode('\n'));
-          document.getElementById('translateBtn').disabled = false;
-        } else {
-          log('Error: ' + xhr.responseText);
+        if (!extractedAudio) {
+          log('Failed to extract audio region.');
+          return;
         }
-      };
-      
-      xhr.onerror = function() {
-        progressContainer.style.display = 'none';
-        log('Network error occurred');
-      };
-      
-      xhr.send(form);
+        
+        log(`Extracted audio size: ${Math.round(extractedAudio.size / 1024 / 1024 * 100) / 100} MB`);
+        
+        // Check file size - OpenAI has a 25MB limit
+        if (extractedAudio.size > 25 * 1024 * 1024) {
+          alert('Selected region still exceeds 25MB limit. Please select a smaller region.');
+          return;
+        }
+
+        const form = new FormData();
+        form.append('file', extractedAudio, 'audio.wav');
+        form.append('model', 'whisper-1');
+        form.append('response_format', 'srt');
+
+        log('Sending to Whisper API...');
+        progressContainer.style.display = 'block';
+        
+        // Create a custom fetch with upload progress
+        const xhr = new XMLHttpRequest();
+        xhr.open('POST', 'https://api.openai.com/v1/audio/transcriptions');
+        xhr.setRequestHeader('Authorization', `Bearer ${apiKey}`);
+        
+        xhr.upload.onprogress = (event) => {
+          if (event.lengthComputable) {
+            const percentComplete = Math.round((event.loaded / event.total) * 100);
+            progressBar.value = percentComplete;
+            progressPercent.textContent = percentComplete + '%';
+          }
+        };
+        
+        xhr.onload = function() {
+          progressContainer.style.display = 'none';
+          
+          if (xhr.status === 200) {
+            originalSrt = xhr.responseText;
+            log('Received SRT.');
+            
+            // Enable the download button and translate button
+            downloadSrtBtn.disabled = false;
+            downloadSrtBtn.classList.remove('button-disabled');
+            downloadSrtBtn.classList.add('button-secondary');
+            
+            document.getElementById('translateBtn').disabled = false;
+          } else {
+            log('Error: ' + xhr.responseText);
+          }
+        };
+        
+        xhr.onerror = function() {
+          progressContainer.style.display = 'none';
+          log('Network error occurred');
+        };
+        
+        xhr.send(form);
+      } catch (error) {
+        log('Error: ' + error.message);
+      }
     }
 
     async function translateSrt() {
       const apiKey = document.getElementById('apiKey').value.trim();
       if (!originalSrt) return;
+      
       log('Translating SRT with GPT-4o...');
       const systemMsg = 'You are a helpful assistant that translates subtitles while preserving the timing and SRT structure exactly.';
       const userMsg = `Translate the following SRT to the target language, preserving numbering and timestamps exactly:\n\n${originalSrt}`;
       const payload = {
-        model: 'gpt-4.1', 
+        model: 'gpt-4o', 
         messages: [
           { role: 'system', content: systemMsg },
           { role: 'user', content: userMsg }
         ], 
-        max_tokens: 32768
+        max_tokens: 20000
       };
       const resp = await fetch('https://api.openai.com/v1/chat/completions', {
         method: 'POST', 
@@ -136,16 +382,39 @@
         return;
       }
       const data = await resp.json();
-      const translated = data.choices[0].message.content;
+      translatedSrt = data.choices[0].message.content;
       log('Translation done.');
-      const url = URL.createObjectURL(new Blob([translated], { type: 'text/plain' }));
-      const a = document.createElement('a'); 
-      a.href = url; 
-      a.download = 'translated.srt'; 
-      a.textContent = 'Download Translated .srt';
-      logDiv.appendChild(a); 
-      logDiv.appendChild(document.createTextNode('\n'));
+      
+      // Enable the download button
+      downloadTranslatedSrtBtn.disabled = false;
+      downloadTranslatedSrtBtn.classList.remove('button-disabled');
+      downloadTranslatedSrtBtn.classList.add('button-secondary');
     }
+    
+    // Download buttons event listeners
+    downloadSrtBtn.addEventListener('click', () => {
+      if (!originalSrt) return;
+      
+      const url = URL.createObjectURL(new Blob([originalSrt], { type: 'text/plain' }));
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'transcript.srt';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+    });
+    
+    downloadTranslatedSrtBtn.addEventListener('click', () => {
+      if (!translatedSrt) return;
+      
+      const url = URL.createObjectURL(new Blob([translatedSrt], { type: 'text/plain' }));
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'translated.srt';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+    });
 
     document.getElementById('transcribeBtn').addEventListener('click', transcribe);
     document.getElementById('translateBtn').addEventListener('click', translateSrt);
