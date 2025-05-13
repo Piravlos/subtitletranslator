@@ -1,17 +1,5 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Whisper Transcriber & Translator</title>
-  <style>
-    body { font-family: Arial, sans-serif; max-width: 800px; margin: 2rem auto; padding: 1rem; }
-    label { display: block; margin: 1rem 0 0.5rem; }
-    button { margin: 0.5rem 0; padding: 0.5rem 1rem; }
-    #log { white-space: pre-wrap; background: #f4f4f4; padding: 1rem; border-radius: 4px; max-height: 200px; overflow-y: scroll; }
-  </style>
-  <!-- Load FFmpeg.wasm via CDN -->
-  <script src="https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg/dist/ffmpeg.min.js"></script>
+<!-- Load FFmpeg.wasm runtime -->
+  <script src="https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.11.8/dist/ffmpeg.min.js"></script>
 </head>
 <body>
   <h1>Whisper Transcriber & Translator</h1>
@@ -31,9 +19,10 @@
     // Use global FFmpeg
     const { createFFmpeg, fetchFile } = FFmpeg;
     // Ensure you have downloaded ffmpeg-core.js and ffmpeg-core.wasm into the same directory as this HTML file.
+    // Configure FFmpeg to load its core assets via CDN
     const ffmpeg = createFFmpeg({
       log: true,
-      corePath: './ffmpeg-core.js',
+      corePath: 'https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.11.8/dist/ffmpeg-core.js',
       worker: false
     });
     let originalSrt = '';
