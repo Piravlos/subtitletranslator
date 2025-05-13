@@ -452,6 +452,64 @@
       padding: 0 0.5rem;
     }
     
+    /* Sticky Progress Mini Dashboard */
+    .sticky-progress-container {
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      background-color: var(--panel-bg);
+      border-radius: 6px;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.15);
+      margin: 0 0 1rem 0;
+      padding: 0.5rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.25rem;
+      transition: all 0.3s ease;
+      order: -1; /* Ensure it's first in the flex container */
+    }
+    
+    .sticky-progress-container.compact {
+      padding: 0.35rem 0.5rem;
+    }
+    
+    .compact-dashboard {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: nowrap;
+      padding: 0;
+      margin: 0.25rem 0;
+    }
+    
+    .compact-dashboard .dashboard-item {
+      padding: 0.15rem;
+      flex: 1;
+      opacity: 0.5;
+    }
+    
+    .compact-dashboard .dashboard-circle {
+      width: 0.75rem;
+      height: 0.75rem;
+      margin-bottom: 0.15rem;
+    }
+    
+    .compact-dashboard .dashboard-text h3 {
+      font-size: 0.65rem;
+    }
+    
+    .compact-dashboard .dashboard-connector {
+      height: 1px;
+      min-width: 0.5rem;
+      max-width: 1.5rem;
+      top: -5px;
+    }
+    
+    .mini-progress-bar {
+      height: 8px;
+      border-radius: 4px;
+    }
+
     .progress-info {
       display: flex;
       justify-content: space-between;
@@ -459,61 +517,21 @@
       margin-bottom: 0.5rem;
     }
     
+    .mini-progress-info {
+      margin-bottom: 0.2rem;
+    }
+    
+    .mini-progress-info .progress-label {
+      font-size: 0.7rem;
+    }
+    
+    .mini-progress-info .progress-percentage {
+      font-size: 0.7rem;
+    }
+    
     .progress-label {
       font-weight: bold;
       font-size: 1rem;
-    }
-    
-    .progress-percentage {
-      font-weight: bold;
-      color: var(--primary-color);
-    }
-    
-    .progress-3d-bar-container {
-      height: 20px;
-      background-color: var(--progress-bg);
-      border-radius: 10px;
-      box-shadow: inset 0 2px 4px var(--progress-shadow),
-                  0 1px 2px rgba(255, 255, 255, 0.2);
-      position: relative;
-      overflow: hidden;
-      z-index: 1;
-    }
-    
-    .progress-3d-bar {
-      height: 100%;
-      width: 0;
-      background: var(--progress-fill);
-      border-radius: 10px;
-      transition: width 0.3s ease;
-      box-shadow: 0 2px 5px var(--progress-shadow);
-      position: relative;
-    }
-    
-    .progress-3d-bar:after {
-      content: '';
-      position: absolute;
-      top: 0;
-      left: 0;
-      right: 0;
-      bottom: 0;
-      background: linear-gradient(to bottom, 
-                  rgba(255, 255, 255, 0.3) 0%, 
-                  rgba(255, 255, 255, 0.1) 40%, 
-                  rgba(0, 0, 0, 0.05) 60%, 
-                  rgba(0, 0, 0, 0.1) 100%);
-      border-radius: 10px;
-    }
-    
-    .progress-3d-bar:before {
-      content: '';
-      position: absolute;
-      top: 0;
-      left: 0;
-      width: 100%;
-      height: 50%;
-      background: rgba(255, 255, 255, 0.2);
-      border-radius: 10px 10px 0 0;
     }
     
     /* Dashboard Results */
@@ -669,69 +687,42 @@
         </div>
       </div>
 
-      <div class="card" id="processDashboard">
-        <div class="card-header">
-          <h2>Process Dashboard</h2>
+      <!-- Always visible progress bar -->
+      <div id="stickyProgressContainer" class="sticky-progress-container" style="display:none;">
+        <div class="progress-info mini-progress-info">
+          <div class="progress-label">Progress</div>
+          <div class="progress-percentage" id="stickyProgressPercent">0%</div>
         </div>
-        <div class="progress-3d-container">
-          <div class="progress-info">
-            <div class="progress-label">Overall Progress</div>
-            <div class="progress-percentage" id="progressPercent3D">0%</div>
-          </div>
-          <div class="progress-3d-bar-container">
-            <div class="progress-3d-bar" id="progressBar3D" style="width: 0%"></div>
-          </div>
+        <div class="progress-3d-bar-container mini-progress-bar">
+          <div class="progress-3d-bar" id="stickyProgressBar" style="width: 0%"></div>
         </div>
-        <div class="dashboard-container">
-          <div class="dashboard-item" id="fileStep">
-            <div class="dashboard-icon">
-              <i class="dashboard-circle"></i>
-            </div>
-            <div class="dashboard-text">
-              <h3>File</h3>
-            </div>
+        <div class="compact-dashboard">
+          <div class="dashboard-item" id="stickyFileStep">
+            <div class="dashboard-icon"><i class="dashboard-circle"></i></div>
+            <div class="dashboard-text"><h3>File</h3></div>
           </div>
           <div class="dashboard-connector"></div>
-          <div class="dashboard-item" id="analysisStep">
-            <div class="dashboard-icon">
-              <i class="dashboard-circle"></i>
-            </div>
-            <div class="dashboard-text">
-              <h3>Analysis</h3>
-            </div>
+          <div class="dashboard-item" id="stickyAnalysisStep">
+            <div class="dashboard-icon"><i class="dashboard-circle"></i></div>
+            <div class="dashboard-text"><h3>Analysis</h3></div>
           </div>
           <div class="dashboard-connector"></div>
-          <div class="dashboard-item" id="transcriptionStep">
-            <div class="dashboard-icon">
-              <i class="dashboard-circle"></i>
-            </div>
-            <div class="dashboard-text">
-              <h3>Transcription</h3>
-            </div>
+          <div class="dashboard-item" id="stickyTranscriptionStep">
+            <div class="dashboard-icon"><i class="dashboard-circle"></i></div>
+            <div class="dashboard-text"><h3>Transcription</h3></div>
           </div>
           <div class="dashboard-connector"></div>
-          <div class="dashboard-item" id="translationStep">
-            <div class="dashboard-icon">
-              <i class="dashboard-circle"></i>
-            </div>
-            <div class="dashboard-text">
-              <h3>Translation</h3>
-            </div>
+          <div class="dashboard-item" id="stickyTranslationStep">
+            <div class="dashboard-icon"><i class="dashboard-circle"></i></div>
+            <div class="dashboard-text"><h3>Translation</h3></div>
           </div>
           <div class="dashboard-connector"></div>
-          <div class="dashboard-item" id="completeStep">
-            <div class="dashboard-icon">
-              <i class="dashboard-circle"></i>
-            </div>
-            <div class="dashboard-text">
-              <h3>Complete</h3>
-            </div>
+          <div class="dashboard-item" id="stickyCompleteStep">
+            <div class="dashboard-icon"><i class="dashboard-circle"></i></div>
+            <div class="dashboard-text"><h3>Complete</h3></div>
           </div>
         </div>
-        <div class="dashboard-details">
-          <p id="stageDescription">Select an audio or video file to begin processing</p>
-          <p id="processingStatus" style="display: none;"></p>
-        </div>
+        <div style="font-size:0.8rem; text-align:center; margin-top:0.25rem;" id="stickyStatusText"></div>
       </div>
 
       <!-- Subtitle Editor Card (moved here for better flow) -->
@@ -811,21 +802,11 @@
     
     // DOM Elements
     const logDiv = document.getElementById('log');
-    const progressPercent3D = document.getElementById('progressPercent3D');
-    const progressBar3D = document.getElementById('progressBar3D');
     const downloadSrtBtn = document.getElementById('downloadSrtBtn');
     const downloadAllZipBtn = document.getElementById('downloadAllZipBtn');
     const fileStatus = document.getElementById('fileStatus');
-    const processingStatus = document.getElementById('processingStatus');
     const transcribeTranslateBtn = document.getElementById('transcribeTranslateBtn');
     const clearLogBtn = document.getElementById('clearLogBtn');
-    
-    // Dashboard elements
-    const fileStep = document.getElementById('fileStep');
-    const analysisStep = document.getElementById('analysisStep');
-    const transcriptionStep = document.getElementById('transcriptionStep');
-    const translationStep = document.getElementById('translationStep');
-    const completeStep = document.getElementById('completeStep');
     
     // Settings modal elements
     const settingsBtn = document.getElementById('settingsBtn');
@@ -851,43 +832,55 @@
     const exportDictBtn = document.getElementById('exportDictBtn');
     const dictFileInput = document.getElementById('dictFileInput');
     
+    // Sticky progress elements
+    const stickyProgressContainer = document.getElementById('stickyProgressContainer');
+    const stickyProgressBar = document.getElementById('stickyProgressBar');
+    const stickyProgressPercent = document.getElementById('stickyProgressPercent');
+    const stickyStatusText = document.getElementById('stickyStatusText');
+    const stickyFileStep = document.getElementById('stickyFileStep');
+    const stickyAnalysisStep = document.getElementById('stickyAnalysisStep');
+    const stickyTranscriptionStep = document.getElementById('stickyTranscriptionStep');
+    const stickyTranslationStep = document.getElementById('stickyTranslationStep');
+    const stickyCompleteStep = document.getElementById('stickyCompleteStep');
+    
     // Dashboard utility functions
     function resetDashboard() {
-      // Remove all active and completed classes
-      fileStep.classList.remove('active', 'completed');
-      analysisStep.classList.remove('active', 'completed');
-      transcriptionStep.classList.remove('active', 'completed');
-      translationStep.classList.remove('active', 'completed');
-      completeStep.classList.remove('active', 'completed');
+      // Reset sticky dashboard active states
+      stickyFileStep.classList.remove('active', 'completed');
+      stickyAnalysisStep.classList.remove('active', 'completed');
+      stickyTranscriptionStep.classList.remove('active', 'completed');
+      stickyTranslationStep.classList.remove('active', 'completed');
+      stickyCompleteStep.classList.remove('active', 'completed');
       
       // Set file step as active by default
-      fileStep.classList.add('active');
+      stickyFileStep.classList.add('active');
       
       // Update description
-      document.getElementById('stageDescription').textContent = 'Select an audio or video file to begin processing';
+      stickyStatusText.textContent = 'Select an audio file to begin processing';
+      stickyProgressContainer.style.display = 'none';
     }
     
     function updateDashboard(step) {
-      // Reset all active states
-      fileStep.classList.remove('active');
-      analysisStep.classList.remove('active');
-      transcriptionStep.classList.remove('active');
-      translationStep.classList.remove('active');
-      completeStep.classList.remove('active');
+      // Reset sticky dashboard active states
+      stickyFileStep.classList.remove('active', 'completed');
+      stickyAnalysisStep.classList.remove('active', 'completed');
+      stickyTranscriptionStep.classList.remove('active', 'completed');
+      stickyTranslationStep.classList.remove('active', 'completed');
+      stickyCompleteStep.classList.remove('active', 'completed');
       
       // Mark all previous steps as completed
       switch(step) {
         case 'complete':
-          translationStep.classList.add('completed');
+          stickyTranslationStep.classList.add('completed');
           // fall through
         case 'translation':
-          transcriptionStep.classList.add('completed');
+          stickyTranscriptionStep.classList.add('completed');
           // fall through
         case 'transcription':
-          analysisStep.classList.add('completed');
+          stickyAnalysisStep.classList.add('completed');
           // fall through
         case 'analysis':
-          fileStep.classList.add('completed');
+          stickyFileStep.classList.add('completed');
           break;
         case 'file':
           // No previous steps
@@ -897,24 +890,32 @@
       // Set current step as active
       switch(step) {
         case 'file':
-          fileStep.classList.add('active');
-          document.getElementById('stageDescription').textContent = 'Select an audio or video file to begin processing';
+          stickyFileStep.classList.add('active');
+          stickyStatusText.textContent = 'Select audio file';
+          stickyProgressContainer.style.display = 'flex';
           break;
         case 'analysis':
-          analysisStep.classList.add('active');
-          document.getElementById('stageDescription').textContent = 'Analyzing audio for natural breaks and optimal processing chunks';
+          stickyAnalysisStep.classList.add('active');
+          stickyStatusText.textContent = 'Analyzing audio';
+          stickyProgressContainer.style.display = 'flex';
           break;
         case 'transcription':
-          transcriptionStep.classList.add('active');
-          document.getElementById('stageDescription').textContent = 'Converting speech to text using Whisper AI';
+          stickyTranscriptionStep.classList.add('active');
+          stickyStatusText.textContent = 'Transcribing audio';
+          stickyProgressContainer.style.display = 'flex';
           break;
         case 'translation':
-          translationStep.classList.add('active');
-          document.getElementById('stageDescription').textContent = 'Translating transcript to selected language(s)';
+          stickyTranslationStep.classList.add('active');
+          stickyStatusText.textContent = 'Translating text';
+          stickyProgressContainer.style.display = 'flex';
           break;
         case 'complete':
-          completeStep.classList.add('active', 'completed');
-          document.getElementById('stageDescription').textContent = 'Processing complete! You can download your files now';
+          stickyCompleteStep.classList.add('active', 'completed');
+          stickyStatusText.textContent = 'Processing complete!';
+          // Keep showing for a moment then hide
+          setTimeout(() => {
+            stickyProgressContainer.style.display = 'none';
+          }, 3000);
           break;
       }
     }
@@ -1099,8 +1100,8 @@
       }
       
       updateDashboard('analysis');
-      processingStatus.textContent = 'Analyzing audio for natural breaks...';
-      processingStatus.style.display = 'block';
+      stickyStatusText.textContent = 'Analyzing audio for natural breaks...';
+      stickyProgressContainer.style.display = 'flex';
       
       // Get raw audio data (we'll use the first channel if stereo)
       const audioData = audioBuffer.getChannelData(0);
@@ -1159,7 +1160,7 @@
         // Let the UI update
         await new Promise(resolve => setTimeout(resolve, 0));
         const percentComplete = Math.round(processedSamples / audioData.length * 100);
-        processingStatus.textContent = `Analyzing audio: ${percentComplete}% complete`;
+        stickyStatusText.textContent = `Analyzing audio: ${percentComplete}% complete`;
       }
       
       // In case we end in silence
@@ -1435,8 +1436,8 @@
       ] : [targetLanguage];
       
       isProcessingChunks = true;
-      processingStatus.style.display = 'block';
-      processingStatus.textContent = 'Preparing audio for transcription...';
+      stickyStatusText.textContent = 'Preparing audio for transcription...';
+      stickyProgressContainer.style.display = 'flex';
       
       try {
         // Automatically create chunks
@@ -1458,7 +1459,7 @@
         for (let i = 0; i < detectedChunks.length; i++) {
           const chunk = detectedChunks[i];
           log(`Processing chunk ${i+1}/${detectedChunks.length} (${formatTime(chunk.start)} - ${formatTime(chunk.end)})...`);
-          processingStatus.textContent = `Transcribing part ${i+1} of ${detectedChunks.length}...`;
+          stickyStatusText.textContent = `Transcribing part ${i+1} of ${detectedChunks.length}...`;
           
           // Extract the audio for this chunk
           const chunkAudio = await extractChunkAudio(chunk);
@@ -1482,8 +1483,8 @@
           // Calculate progress percentage - transcription is first half, translation is second half
           const transcriptionWeight = translateToAll ? 0.3 : 0.5; // If translating to all languages, give more weight to translation phase
           const progressValue = Math.round((i / detectedChunks.length) * 100 * transcriptionWeight);
-          progressPercent3D.textContent = `${progressValue}%`;
-          progressBar3D.style.width = `${progressValue}%`;
+          stickyProgressPercent.textContent = `${progressValue}%`;
+          stickyProgressBar.style.width = `${progressValue}%`;
           
           // Use fetch for simplicity
           const response = await fetch('https://api.openai.com/v1/audio/transcriptions', {
@@ -1531,9 +1532,9 @@
         log('Applied word replacements from dictionary');
         
         renderSubtitleEditor(originalSrt);
-        processingStatus.textContent = 'Review and edit subtitles below, then click Translate';
-        progressPercent3D.textContent = '50%';
-        progressBar3D.style.width = '50%';
+        stickyStatusText.textContent = 'Review and edit subtitles below, then click Translate';
+        stickyProgressPercent.textContent = '50%';
+        stickyProgressBar.style.width = '50%';
 
         // Enable save button (already) but keep translate disabled until save
         startTranslationBtn.disabled = true;
@@ -1541,7 +1542,7 @@
         updateDashboard('transcription');
       } catch (error) {
         log(`Error: ${error.message}`);
-        processingStatus.textContent = `Error: ${error.message}`;
+        stickyStatusText.textContent = `Error: ${error.message}`;
       } finally {
         isProcessingChunks = false;
       }
@@ -1726,8 +1727,8 @@
       ] : [targetLanguage];
 
       isTranslating = true;
-      processingStatus.style.display = 'block';
-      processingStatus.textContent = 'Starting translation...';
+      stickyStatusText.textContent = 'Starting translation...';
+      stickyProgressContainer.style.display = 'flex';
       updateDashboard('translation');
 
       translationsByLanguage = {};
@@ -1736,15 +1737,15 @@
 
       try {
         for (const language of languages) {
-          processingStatus.textContent = `Translating to ${language}... (${completedLanguages+1}/${totalLanguages})`;
+          stickyStatusText.textContent = `Translating to ${language}... (${completedLanguages+1}/${totalLanguages})`;
           log(`Translating to ${language}...`);
 
           // Progress calculation: transcription 50%, translation 50%
           const translationProgressPerLang = 50 / totalLanguages;
           const progressValue = 50 + (translationProgressPerLang * completedLanguages);
-          progressPercent3D.textContent = `${Math.round(progressValue)}%`;
-          progressBar3D.style.width = `${progressValue}%`;
-
+          stickyProgressPercent.textContent = `${Math.round(progressValue)}%`;
+          stickyProgressBar.style.width = `${progressValue}%`;
+          
           try {
             const systemMsg = `You are a helpful assistant that translates subtitles to ${language} while preserving the timing and SRT structure exactly.`;
             const userMsg = `Translate the following SRT to ${language}, preserving numbering and timestamps exactly:\n\n${originalSrt}`;
@@ -1793,9 +1794,9 @@
           translatedSrt = translationsByLanguage[targetLanguage] || '';
         }
 
-        processingStatus.textContent = 'Translation complete!';
-        progressPercent3D.textContent = '100%';
-        progressBar3D.style.width = '100%';
+        stickyStatusText.textContent = 'Translation complete!';
+        stickyProgressPercent.textContent = '100%';
+        stickyProgressBar.style.width = '100%';
         updateDashboard('complete');
 
         // Enable download buttons
@@ -1804,7 +1805,7 @@
         downloadAllZipBtn.classList.add('button-secondary');
       } catch (error) {
         log(`Translation error: ${error.message}`);
-        processingStatus.textContent = `Translation error: ${error.message}`;
+        stickyStatusText.textContent = `Translation error: ${error.message}`;
       } finally {
         isTranslating = false;
       }
