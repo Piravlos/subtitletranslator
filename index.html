@@ -17,6 +17,8 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
   <!-- Using older, more compatible version (0.10.1) -->
   <script src="https://unpkg.com/@ffmpeg/ffmpeg@0.10.1/dist/ffmpeg.min.js"></script>
+  <!-- COOP/COEP Service Worker for SharedArrayBuffer support -->
+  <script src="https://cdn.jsdelivr.net/npm/coi-serviceworker@0.1.6/coi-serviceworker.js"></script>
   <style>
     :root {
       --primary-color: #4CAF50;
@@ -764,6 +766,11 @@
           <button id="downloadSrtBtn" class="button-disabled" disabled>Download Original (.srt)</button>
           <button id="downloadAllZipBtn" class="button-disabled" disabled>Download All (ZIP)</button>
           <button id="renderVideoBtn" class="button-disabled" disabled>Render Video (MP4)</button>
+        </div>
+        <div class="browser-requirements" style="margin-top: 10px; font-size: 0.85rem; color: var(--text-color); padding: 10px; background-color: rgba(0,0,0,0.05); border-radius: 4px;">
+          <strong>Note:</strong> Video rendering requires a modern browser with proper security settings. 
+          For best results, use Chrome or Edge with HTTPS. If you encounter a "SharedArrayBuffer" error, 
+          please refresh the page after it fully loads.
         </div>
       </div>
 
@@ -1989,6 +1996,15 @@
     
     async function initFFmpeg() {
       try {
+        // First check if SharedArrayBuffer is available
+        if (typeof SharedArrayBuffer === 'undefined') {
+          log("❌ SharedArrayBuffer is not available in your browser.");
+          log("This is required for FFmpeg to work properly.");
+          log("This may be because Cross-Origin Isolation is not properly set up.");
+          log("Please try refreshing the page. If the issue persists, try using Chrome or Edge browser.");
+          return false;
+        }
+        
         // Using 0.10.1 version - more reliable in browsers
         const { createFFmpeg, fetchFile } = FFmpeg;
         
@@ -2006,6 +2022,13 @@
         return true;
       } catch (error) {
         log("❌ FFmpeg Error: " + error.message);
+        
+        // Specific error handling for common issues
+        if (error.message && error.message.includes("SharedArrayBuffer")) {
+          log("This error is related to browser security features for SharedArrayBuffer.");
+          log("Please ensure you're using a modern browser with HTTPS and try refreshing the page.");
+        }
+        
         console.error("FFmpeg Error:", error);
         return false;
       }
