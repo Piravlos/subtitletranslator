@@ -3,6 +3,9 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <!-- Cross-Origin-Isolation headers (needed for SharedArrayBuffer) -->
+  <meta http-equiv="Cross-Origin-Embedder-Policy" content="require-corp">
+  <meta http-equiv="Cross-Origin-Opener-Policy" content="same-origin">
   <title>Subtitle Transcriber &Translator</title>
   <!-- WaveSurfer.js v7 core -->
   <script src="https://unpkg.com/wavesurfer.js@7/dist/wavesurfer.min.js"></script>
@@ -12,6 +15,8 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.1.1/crypto-js.min.js"></script>
   <!-- JSZip for downloading multiple files -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+  <!-- Using older, more compatible version (0.10.1) -->
+  <script src="https://unpkg.com/@ffmpeg/ffmpeg@0.10.1/dist/ffmpeg.min.js"></script>
   <style>
     :root {
       --primary-color: #4CAF50;
@@ -758,6 +763,7 @@
         <div class="buttons-group">
           <button id="downloadSrtBtn" class="button-disabled" disabled>Download Original (.srt)</button>
           <button id="downloadAllZipBtn" class="button-disabled" disabled>Download All (ZIP)</button>
+          <button id="renderVideoBtn" class="button-disabled" disabled>Render Video (MP4)</button>
         </div>
       </div>
 
@@ -796,6 +802,7 @@
     let audioBuffer = null;
     let isProcessingChunks = false;
     let isTranslating = false;
+    let selectedMediaFile = null; // reference to uploaded media for rendering
     
     // Encryption key for storing API key (generated once per browser)
     const encryptionKey = getOrCreateEncryptionKey();
@@ -804,6 +811,7 @@
     const logDiv = document.getElementById('log');
     const downloadSrtBtn = document.getElementById('downloadSrtBtn');
     const downloadAllZipBtn = document.getElementById('downloadAllZipBtn');
+    const renderVideoBtn = document.getElementById('renderVideoBtn');
     const fileStatus = document.getElementById('fileStatus');
     const transcribeTranslateBtn = document.getElementById('transcribeTranslateBtn');
     const clearLogBtn = document.getElementById('clearLogBtn');
@@ -1058,6 +1066,7 @@
     // Handle file selection
     document.getElementById('mediaFile').addEventListener('change', async function(e) {
       const file = e.target.files[0];
+      selectedMediaFile = file;
       if (!file) {
         fileStatus.textContent = 'No file selected';
         transcribeTranslateBtn.disabled = true;
@@ -1778,6 +1787,14 @@
         downloadAllZipBtn.disabled = false;
         downloadAllZipBtn.classList.remove('button-disabled');
         downloadAllZipBtn.classList.add('button-secondary');
+
+        // Enable video rendering button if a video file is loaded
+        if (selectedMediaFile && selectedMediaFile.type.startsWith('video')) {
+          renderVideoBtn.disabled = false;
+          renderVideoBtn.classList.remove('button-disabled');
+          renderVideoBtn.classList.add('button-secondary');
+          log('Video rendering is now available');
+        }
       } catch (error) {
         log(`Translation error: ${error.message}`);
         stickyStatusText.textContent = `Translation error: ${error.message}`;
@@ -1964,6 +1981,121 @@
         log('Applied replacements to subtitle editor');
       });
     }
+
+    /* ---------- Video rendering with FFmpeg ---------- */
+    /* Initialize FFmpeg with better error handling */
+    // Simpler FFmpeg initialization with older, more compatible version
+    let ffmpeg = null;
+    
+    async function initFFmpeg() {
+      try {
+        // Using 0.10.1 version - more reliable in browsers
+        const { createFFmpeg, fetchFile } = FFmpeg;
+        
+        if (!createFFmpeg) {
+          log("FFmpeg API not found. Please check your internet connection.");
+          return false;
+        }
+        
+        log("Creating FFmpeg instance...");
+        ffmpeg = createFFmpeg({ log: true });
+        
+        log("Loading FFmpeg (this may take a moment)...");
+        await ffmpeg.load();
+        log("✅ FFmpeg loaded successfully!");
+        return true;
+      } catch (error) {
+        log("❌ FFmpeg Error: " + error.message);
+        console.error("FFmpeg Error:", error);
+        return false;
+      }
+    }
+    
+    // Try to load saved API key and other initialization on page load
+    document.addEventListener('DOMContentLoaded', async () => {
+      loadSavedApiKey();
+      loadReplacementDictionary();
+      try {
+        await initFFmpeg();
+      } catch (e) {
+        console.error("FFmpeg init error:", e);
+      }
+    });
+
+    async function renderVideoWithSubtitles() {
+      if (!ffmpeg) {
+        try {
+          log("Initializing FFmpeg - please wait...");
+          const success = await initFFmpeg();
+          if (!success) {
+            alert('Video renderer failed to load. Please try using Chrome or Edge and ensure you\'re using HTTPS.');
+            return;
+          }
+        } catch (error) {
+          alert('Error initializing FFmpeg: ' + error.message);
+          log('Make sure you\'re using a modern browser with HTTPS');
+          return;
+        }
+      }
+
+      if (!selectedMediaFile || !selectedMediaFile.type.startsWith('video')) {
+        alert('Please select a video file first.');
+        return;
+      }
+
+      if (!translatedSrt) {
+        alert('No translated subtitles available. Please finish translation first.');
+        return;
+      }
+
+      try {
+        stickyStatusText.textContent = 'Loading video renderer...';
+        stickyProgressContainer.style.display = 'flex';
+
+        if (!ffmpeg.isLoaded()) {
+          await ffmpeg.load();
+        }
+
+        stickyStatusText.textContent = 'Rendering video with subtitles...';
+
+        ffmpeg.setProgress(({ ratio }) => {
+          const percent = Math.round(ratio * 100);
+          stickyProgressPercent.textContent = `${percent}%`;
+          stickyProgressBar.style.width = `${percent}%`;
+        });
+
+        // Prepare input video and subtitle files for ffmpeg FS
+        const ext = selectedMediaFile.name.substring(selectedMediaFile.name.lastIndexOf('.')) || '.mp4';
+        const inputName = 'input' + ext;
+        const { fetchFile } = FFmpeg;
+        ffmpeg.FS('writeFile', inputName, await fetchFile(selectedMediaFile));
+        ffmpeg.FS('writeFile', 'subs.srt', await fetchFile(new Blob([translatedSrt], { type: 'text/plain' })));
+
+        // Run ffmpeg command: burn-in subtitles, copy audio, default styling for readability
+        await ffmpeg.run('-i', inputName, '-vf', "subtitles=subs.srt:force_style='FontName=Arial,FontSize=28,BorderStyle=1,Outline=1,Shadow=1'", '-c:a', 'copy', 'output.mp4');
+
+        const data = ffmpeg.FS('readFile', 'output.mp4');
+        const videoBlob = new Blob([data.buffer], { type: 'video/mp4' });
+        const url = URL.createObjectURL(videoBlob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'video_with_subtitles.mp4';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+
+        stickyStatusText.textContent = 'Video rendered successfully!';
+        updateDashboard('complete');
+      } catch (error) {
+        log('Error rendering video: ' + error.message);
+        stickyStatusText.textContent = 'Error rendering video: ' + error.message;
+      }
+    }
+
+    // duplicate selectedMediaFile declaration removed
+
+    renderVideoBtn.addEventListener('click', renderVideoWithSubtitles);
 
   </script>
 </body>
