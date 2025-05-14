@@ -1174,129 +1174,104 @@
     
     // Function to create optimized chunks that stay under 25MB
     async function createOptimizedChunks() {
-      if (!audioBuffer) {
-        return [];
-      }
-      
-      // Find all silence points
+      if (!audioBuffer) return [];
+
+      // Detect silence points once
       const silencePoints = await detectSilence();
-      
+
       if (silencePoints.length === 0) {
-        log('No significant pauses detected. Will use time-based chunking instead.');
+        log('No significant pauses detected – falling back to simple time-based chunking.');
         return createTimeBasedChunks();
       }
-      
+
       log(`Detected ${silencePoints.length} natural break points`);
-      
-      // Get the audio duration
-      const totalDuration = audioBuffer.duration;
-      
-      // Estimate the bytes per second rate (rough approximation)
-      // Assuming 16bit stereo at 44.1kHz for WAV
-      const bytesPerSecond = 44100 * 4; // 44.1kHz * (2 channels * 2 bytes per sample)
-      
-      // API limit size in bytes (25MB)
-      const maxChunkSizeBytes = 25 * 1024 * 1024;
-      
-      // Target size in bytes (reduced to 22MB to be more conservative)
-      const targetChunkSizeBytes = 22 * 1024 * 1024;
-      
-      // Calculate target duration per chunk
-      const targetChunkDuration = targetChunkSizeBytes / bytesPerSecond;
-      
-      // Create chunks
+
+      /* ----------------------------------------------------------
+         Size calculations based on ACTUAL audio characteristics
+      -----------------------------------------------------------*/
+      const sampleRate        = audioBuffer.sampleRate;                // e.g. 48 000
+      const channelCount      = audioBuffer.numberOfChannels || 1;     // 1 (mono) or 2 (stereo)
+      const bytesPerSecond    = sampleRate * channelCount * 2;         // 16-bit PCM
+
+      const MAX_BYTES         = 25 * 1024 * 1024;                      // Whisper hard limit (25 MB)
+      const SAFETY_FACTOR     = 0.90;                                   // keep some headroom (10 %)
+      const TARGET_BYTES      = Math.floor(MAX_BYTES * SAFETY_FACTOR); // ~22.5 MB
+
+      const maxChunkDuration  = (MAX_BYTES    * SAFETY_FACTOR) / bytesPerSecond; // seconds
+      const targetDuration    = (TARGET_BYTES) / bytesPerSecond;                // seconds
+
+      /* ----------------------------------------------------------
+         Build chunk list
+      -----------------------------------------------------------*/
       const chunks = [];
-      let chunkStart = 0;
-      
-      while (chunkStart < totalDuration) {
-        // Target end time for this chunk (min of target duration or end)
-        const idealEnd = Math.min(chunkStart + targetChunkDuration, totalDuration);
-        
-        // Find the closest silence point to the ideal end
-        let bestBreakPoint = idealEnd;
-        let minDistance = Number.MAX_VALUE;
-        
-        for (const silencePoint of silencePoints) {
-          // Only consider silence points past our starting point and not too far past ideal end
-          // But also ensure we don't create chunks larger than allowed
-          if (silencePoint > chunkStart && 
-              silencePoint < idealEnd + 30 && 
-              (silencePoint - chunkStart) * bytesPerSecond < maxChunkSizeBytes) {
-            const distance = Math.abs(silencePoint - idealEnd);
-            if (distance < minDistance) {
-              minDistance = distance;
-              bestBreakPoint = silencePoint;
-            }
-          }
-        }
-        
-        // If we couldn't find a good break point, or if the chunk would be too large,
-        // force a break at a safe point that's guaranteed to be under limit
-        if (bestBreakPoint === idealEnd && idealEnd < totalDuration || 
-            (bestBreakPoint - chunkStart) * bytesPerSecond >= maxChunkSizeBytes) {
-          
-          // Calculate a safe end time that's guaranteed to be under the limit
-          const safeEndTime = chunkStart + (maxChunkSizeBytes * 0.95) / bytesPerSecond;
-          
-          // Find closest silence point under this safe end time
-          let safeSilencePoint = null;
-          let minSafeDistance = Number.MAX_VALUE;
-          
-          for (const silencePoint of silencePoints) {
-            if (silencePoint > chunkStart && silencePoint < safeEndTime) {
-              const distance = safeEndTime - silencePoint;
-              if (distance < minSafeDistance) {
-                minSafeDistance = distance;
-                safeSilencePoint = silencePoint;
-              }
-            }
-          }
-          
-          if (safeSilencePoint) {
-            bestBreakPoint = safeSilencePoint;
-          } else {
-            // If no silence points are found, just use the safe end time
-            bestBreakPoint = safeEndTime;
-          }
-        }
-        
-        // Add the chunk
-        chunks.push({
-          start: chunkStart,
-          end: bestBreakPoint,
-          duration: bestBreakPoint - chunkStart
-        });
-        
-        // Move to next chunk
-        chunkStart = bestBreakPoint;
-      }
-      
-      return chunks;
-    }
-    
-    // Create time-based chunks if no silence is detected
-    function createTimeBasedChunks() {
-      if (!audioBuffer) return [];
-      
       const totalDuration = audioBuffer.duration;
-      const bytesPerSecond = 44100 * 4;
-      const maxChunkDuration = (24 * 1024 * 1024) / bytesPerSecond; // 24MB to be safe
-      
-      const chunks = [];
+
       let chunkStart = 0;
-      
       while (chunkStart < totalDuration) {
-        const chunkEnd = Math.min(chunkStart + maxChunkDuration, totalDuration);
-        
+        const idealEnd = Math.min(chunkStart + targetDuration, totalDuration);
+
+        // Candidate silence points between chunkStart and chunkStart+maxChunkDuration
+        const windowEnd = Math.min(chunkStart + maxChunkDuration, totalDuration);
+
+        // Find silence points in [chunkStart, windowEnd]
+        const candidates = silencePoints.filter(p => p > chunkStart && p <= windowEnd);
+
+        let chunkEnd;
+        if (candidates.length) {
+          /* Pick the candidate CLOSEST to the ideal end (but not exceeding windowEnd) */
+          chunkEnd = candidates.reduce((prev, curr) => {
+            return Math.abs(curr - idealEnd) < Math.abs(prev - idealEnd) ? curr : prev;
+          });
+        } else {
+          // No silence in window ⇒ force hard cut at windowEnd
+          chunkEnd = windowEnd;
+        }
+
+        // Final safety check – if still too big, trim further
+        if ((chunkEnd - chunkStart) * bytesPerSecond > MAX_BYTES) {
+          chunkEnd = chunkStart + (MAX_BYTES * SAFETY_FACTOR) / bytesPerSecond;
+        }
+
         chunks.push({
           start: chunkStart,
           end: chunkEnd,
           duration: chunkEnd - chunkStart
         });
-        
+
         chunkStart = chunkEnd;
       }
-      
+
+      return chunks;
+    }
+
+    // Create time-based chunks if no silence is detected
+    function createTimeBasedChunks() {
+      if (!audioBuffer) return [];
+
+      const totalDuration   = audioBuffer.duration;
+      const sampleRate      = audioBuffer.sampleRate;
+      const channelCount    = audioBuffer.numberOfChannels || 1;
+      const bytesPerSecond  = sampleRate * channelCount * 2;          // 16-bit PCM
+
+      const MAX_BYTES       = 25 * 1024 * 1024;
+      const SAFETY_FACTOR   = 0.90;                                   // 90 % of limit
+      const maxChunkDuration = (MAX_BYTES * SAFETY_FACTOR) / bytesPerSecond;
+
+      const chunks = [];
+      let chunkStart = 0;
+
+      while (chunkStart < totalDuration) {
+        const chunkEnd = Math.min(chunkStart + maxChunkDuration, totalDuration);
+
+        chunks.push({
+          start: chunkStart,
+          end: chunkEnd,
+          duration: chunkEnd - chunkStart
+        });
+
+        chunkStart = chunkEnd;
+      }
+
       return chunks;
     }
     
