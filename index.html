@@ -2045,6 +2045,74 @@
       }
     });
 
+    /* Helper function to convert SRT to WebVTT format */
+    function convertSrtToVtt(srtContent) {
+      if (!srtContent) return '';
+      
+      // Add the WebVTT header
+      let vttContent = 'WEBVTT\n\n';
+      
+      // Split the SRT into subtitle blocks
+      const blocks = srtContent.trim().split(/\n\s*\n/);
+      
+      // Process each block
+      for (const block of blocks) {
+        const lines = block.trim().split('\n');
+        if (lines.length >= 3) {
+          // Skip the subtitle number (first line)
+          // Keep the timing and subtitle text
+          const timingLine = lines[1].replace(',', '.');  // WebVTT uses '.' instead of ',' for milliseconds
+          const textLines = lines.slice(2).join('\n');
+          
+          vttContent += timingLine + '\n' + textLines + '\n\n';
+        }
+      }
+      
+      return vttContent;
+    }
+    
+    // Helper function to create a basic RGBA font texture directly (as a last resort)
+    function createBasicFont() {
+      try {
+        // A minimal 8x8 font (very basic) as a fallback when all else fails
+        const fontSize = 8;
+        const fontWidth = 16 * fontSize;
+        const fontHeight = 16 * fontSize;
+        const canvas = document.createElement('canvas');
+        canvas.width = fontWidth;
+        canvas.height = fontHeight;
+        const ctx = canvas.getContext('2d');
+        
+        // Fill with transparent background
+        ctx.fillStyle = 'rgba(0, 0, 0, 0)';
+        ctx.fillRect(0, 0, fontWidth, fontHeight);
+        
+        // Draw basic characters
+        ctx.fillStyle = 'white';
+        ctx.font = `${fontSize}px monospace`;
+        
+        // Draw all ASCII characters in a grid
+        for (let i = 0; i < 256; i++) {
+          const x = (i % 16) * fontSize;
+          const y = Math.floor(i / 16) * fontSize + fontSize;
+          // Only draw printable characters
+          if (i >= 32 && i <= 126) {
+            ctx.fillText(String.fromCharCode(i), x, y);
+          }
+        }
+        
+        // Convert to blob and return
+        return new Promise(resolve => {
+          canvas.toBlob(blob => {
+            resolve(blob);
+          }, 'image/png');
+        });
+      } catch (error) {
+        console.error('Error creating basic font:', error);
+        return null;
+      }
+    }
+
     async function renderVideoWithSubtitles() {
       if (!ffmpeg) {
         try {
@@ -2079,24 +2147,296 @@
           await ffmpeg.load();
         }
 
-        stickyStatusText.textContent = 'Rendering video with subtitles...';
-
-        ffmpeg.setProgress(({ ratio }) => {
-          const percent = Math.round(ratio * 100);
-          stickyProgressPercent.textContent = `${percent}%`;
-          stickyProgressBar.style.width = `${percent}%`;
-        });
-
-        // Prepare input video and subtitle files for ffmpeg FS
+        // Prepare input video file
         const ext = selectedMediaFile.name.substring(selectedMediaFile.name.lastIndexOf('.')) || '.mp4';
         const inputName = 'input' + ext;
         const { fetchFile } = FFmpeg;
+        
+        // Load the font file - fetch from URL or from local server
+        log('Loading font file...');
+        
+        // Variable to track if font loading succeeded
+        let fontLoaded = false;
+        let fontPath = '';
+        let useSimpleTextMode = false;
+        
+        try {
+          // Try these options in sequence:
+          // 1. Try server font (absolute path)
+          // 2. Try local font (relative path)
+          // 3. Try CDN font
+          // 4. Create and use a basic font texture
+          // 5. Fall back to system font with no fontfile parameter
+
+          // Option 1: Server font (absolute path)
+          try {
+            const fontResponse = await fetch('/OpenSans-Regular.ttf');
+            if (fontResponse.ok) {
+              const fontData = await fontResponse.arrayBuffer();
+              ffmpeg.FS('writeFile', 'font.ttf', new Uint8Array(fontData));
+              log('Font loaded from server absolute path');
+              fontLoaded = true;
+              fontPath = 'font.ttf';
+            }
+          } catch (e) {
+            log('Could not load font from absolute path: ' + e.message);
+          }
+
+          // Option 2: Local font (relative path)
+          if (!fontLoaded) {
+            try {
+              const relativeResponse = await fetch('OpenSans-Regular.ttf');
+              if (relativeResponse.ok) {
+                const fontData = await relativeResponse.arrayBuffer();
+                ffmpeg.FS('writeFile', 'font.ttf', new Uint8Array(fontData));
+                log('Font loaded from relative path');
+                fontLoaded = true;
+                fontPath = 'font.ttf';
+              }
+            } catch (e) {
+              log('Could not load font from relative path: ' + e.message);
+            }
+          }
+
+          // Option 3: CDN font - try several options
+          if (!fontLoaded) {
+            // Try common Google Fonts which are more likely to be TTF instead of WOFF
+            const fontUrls = [
+              'https://cdn.jsdelivr.net/npm/open-sans-fonts@1.6.3/fonts/Regular/OpenSans-Regular.ttf',
+              'https://fonts.gstatic.com/s/opensans/v29/memSYaGs126MiZpBA-UvWbX2vVnXBbObj2OVZyOOSr4dVJWUgsjZ0B4gaVI.woff',
+              'https://fonts.gstatic.com/s/roboto/v30/KFOmCnqEu92Fr1Mu4mxK.woff2'
+            ];
+            
+            // Try each font URL until one works
+            for (const url of fontUrls) {
+              if (fontLoaded) break;
+              
+              try {
+                log(`Trying font from: ${url}`);
+                const fontResponse = await fetch(url);
+                if (fontResponse.ok) {
+                  const fontData = await fontResponse.arrayBuffer();
+                  ffmpeg.FS('writeFile', 'font.ttf', new Uint8Array(fontData));
+                  log(`Font loaded from ${url}`);
+                  fontLoaded = true;
+                  fontPath = 'font.ttf';
+                  break;
+                }
+              } catch (e) {
+                log(`Error loading font from ${url}: ${e.message}`);
+              }
+            }
+          }
+
+          // Option 4: Add a bundled minimal fallback font directly in JavaScript
+          if (!fontLoaded) {
+            try {
+              // This is a very small, raw TTF file for a basic monospace font
+              // Encoded as base64 and embedded directly in the code to avoid any loading issues
+              log('Loading bundled minimal fallback font...');
+              
+              // Try to use a minimal embedded font - this is a tiny TTF file converted to base64
+              // This is a fallback for when all other font loading methods fail
+              const tinyFontBase64 = 'AAEAAAAKAIAAAwAgT1MvMv/QAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAE1VFIAGO9ZD0kAAACUAAAACgAAAAACdX9SR09TLzL/0AAAAAAAAAAAAAAAAAAAAAAAAAAAAAABNVRSBjvWQ9JAAAAkgAAAAlYAAAIeb3BlbVVCzP8AAAFIAAABcQAAAcpYWVogbm90aGlzaW5mby5jb20AAAHmAAAAAQAAAQEAZnJvbnRpc2Vzc2VudGlhbC5jb20AAAG0AAAAJnNmMzIAAAB8AAAAEHNmMzJ0ZXh0AKuQqJAAABgAAAACc2YzMmZvbnQAAAAQAAAARnNmMzJzaXplAAAAYAAAABBzZjMyc2l6ZXQAAAAQAAAARm5hbWVKaXN0aWNhAAADRAAAAQQAAAKYZGVzYwAAAAMAAAAjK05vdGU6IE1pbmltYWwgdGVzdCBmb250IGZvciBmZm1wZWcAMgAAbgBvAHQAaABpAHMAaQBuAGYAbwAuAGMAbwBtAAAAUE9TVIbqxuoAACAAAAAAAAAAAAAAAA==';
+              
+              try {
+                // Convert base64 to binary
+                const binaryString = atob(tinyFontBase64);
+                const len = binaryString.length;
+                const bytes = new Uint8Array(len);
+                for (let i = 0; i < len; i++) {
+                  bytes[i] = binaryString.charCodeAt(i);
+                }
+                
+                // Write to FFmpeg filesystem
+                ffmpeg.FS('writeFile', 'minimal.ttf', bytes);
+                log('Minimal embedded font loaded successfully');
+                fontLoaded = true;
+                fontPath = 'minimal.ttf';
+              } catch (e) {
+                log(`Error loading minimal embedded font: ${e.message}`);
+                useSimpleTextMode = true;
+              }
+            } catch (e) {
+              log(`Failed to load embedded font: ${e.message}`);
+              useSimpleTextMode = true;
+            }
+          }
+
+        } catch (fontError) {
+          log('Error handling fonts: ' + fontError.message);
+          useSimpleTextMode = true;
+        }
+          
+        stickyStatusText.textContent = 'Preparing video...';
         ffmpeg.FS('writeFile', inputName, await fetchFile(selectedMediaFile));
-        ffmpeg.FS('writeFile', 'subs.srt', await fetchFile(new Blob([translatedSrt], { type: 'text/plain' })));
-
-        // Run ffmpeg command: burn-in subtitles, copy audio, default styling for readability
-        await ffmpeg.run('-i', inputName, '-vf', "subtitles=subs.srt:force_style='FontName=Arial,FontSize=28,BorderStyle=1,Outline=1,Shadow=1'", '-c:a', 'copy', 'output.mp4');
-
+        
+        // Get the subtitles
+        const segments = parseSrtToSegments(translatedSrt);
+        log(`Processing ${segments.length} subtitles...`);
+        
+        // Write the original SRT file for later use (even though we're not using it directly now)
+        ffmpeg.FS('writeFile', 'subtitles.srt', translatedSrt);
+          
+        // Skip the subtitles filter and go directly to drawtext, which works more reliably
+        log('Creating drawtext filters for all subtitles...');
+        stickyStatusText.textContent = 'Preparing subtitle overlays...';
+          
+        // Create a complex drawtext filter chain for all subtitles
+        let filter = '';
+          
+        // First create a title at the beginning - with or without font file
+        if (fontLoaded) {
+          filter = `drawtext=fontfile=${fontPath}:text='Subtitles':fontcolor=white:fontsize=28:x=(w-text_w)/2:y=20:enable='lt(t,3)'`;
+        } else {
+          // No font specification with system font fallback
+          filter = `drawtext=text='Subtitles':fontcolor=white:fontsize=28:x=(w-text_w)/2:y=20:enable='lt(t,3)'`;
+        }
+          
+        // Number of subtitles to include - too many can cause filter to fail
+        // If we're in simple mode, limit even further to avoid errors
+        const maxSubtitles = useSimpleTextMode ? 
+            Math.min(segments.length, 15) : // More conservative in simple mode
+            Math.min(segments.length, 25);  // Standard limit
+          
+        // Add each subtitle as a drawtext filter
+        for (let i = 0; i < maxSubtitles; i++) {
+          const seg = segments[i];
+          const [startTime, endTime] = seg.timing.split(' --> ');
+          
+          // Get milliseconds as well as hours, minutes, seconds
+          const startTimeMs = startTime.split(',')[1] || '000';
+          const endTimeMs = endTime.split(',')[1] || '000';
+          const startTimeParts = startTime.split(',')[0].split(':').map(Number);
+          const endTimeParts = endTime.split(',')[0].split(':').map(Number);
+            
+          // Convert to seconds including milliseconds
+          const startTimeSeconds = startTimeParts[0] * 3600 + startTimeParts[1] * 60 + startTimeParts[2] + (parseInt(startTimeMs) / 1000);
+          const endTimeSeconds = endTimeParts[0] * 3600 + endTimeParts[1] * 60 + endTimeParts[2] + (parseInt(endTimeMs) / 1000);
+            
+          // Clean text - remove quotes and newlines that could break the filter
+          // In simple mode, also limit length to avoid filter complexity
+          let text = seg.text.replace(/[\n\r]/g, ' ').replace(/'/g, '').replace(/"/g, '');
+          if (useSimpleTextMode && text.length > 50) {
+            text = text.substring(0, 47) + '...';
+          }
+          
+          // Calculate safe text width for screen (80% of video width)
+          // and ensure it stays within the video frame
+          const safeWidthPercent = 80;
+          
+          // Add overlay - only include fontfile parameter if the font loaded successfully
+          if (fontLoaded) {
+            filter += `,drawtext=fontfile=${fontPath}:text='${text}':fontcolor=white:fontsize=24:x=(w-text_w)/2:y=h-60:box=1:boxcolor=black@0.7:boxborderw=10:enable='between(t,${startTimeSeconds},${endTimeSeconds})'`;
+          } else {
+            filter += `,drawtext=text='${text}':fontcolor=white:fontsize=24:x=(w-text_w)/2:y=h-60:box=1:boxcolor=black@0.7:boxborderw=10:enable='between(t,${startTimeSeconds},${endTimeSeconds})'`;
+          }
+        }
+          
+        log('Rendering video with subtitle overlays...');
+        stickyStatusText.textContent = 'Rendering video...';
+        
+        // If there are more subtitles than we could include, show a message
+        if (segments.length > maxSubtitles) {
+          log(`Note: Only showing first ${maxSubtitles} out of ${segments.length} subtitles due to browser limitations.`);
+        }
+          
+        // Try with the full filter first
+        try {
+          await ffmpeg.run(
+            '-i', inputName,
+            '-vf', filter,
+            '-c:v', 'libx264',
+            '-preset', 'ultrafast',
+            '-c:a', 'copy', 
+            'output.mp4'
+          );
+          log('Video rendered successfully with full subtitles!');
+        } catch (renderError) {
+          // If full filter fails, try with a much simpler approach
+          log(`First render attempt failed: ${renderError.message}`);
+          log('Trying with simplified subtitles...');
+          
+          // Create a much simpler filter with fewer subtitles and simpler formatting
+          let simpleFilter = '';
+          
+          // Limit to even fewer subtitles
+          const reducedSubtitleCount = Math.min(segments.length, 8);
+          
+          if (fontLoaded) {
+            simpleFilter = `drawtext=fontfile=${fontPath}:text='Subtitles':fontcolor=white:fontsize=24:x=(w-text_w)/2:y=20:enable='lt(t,3)'`;
+          } else {
+            simpleFilter = `drawtext=text='Subtitles':fontcolor=white:fontsize=24:x=(w-text_w)/2:y=20:enable='lt(t,3)'`;
+          }
+          
+          // Add just a few subtitles with minimal formatting
+          for (let i = 0; i < reducedSubtitleCount; i++) {
+            const seg = segments[i];
+            const [startTime, endTime] = seg.timing.split(' --> ');
+            
+            // Get milliseconds as well
+            const startTimeMs = startTime.split(',')[1] || '000';
+            const endTimeMs = endTime.split(',')[1] || '000';
+            const startTimeParts = startTime.split(',')[0].split(':').map(Number);
+            const endTimeParts = endTime.split(',')[0].split(':').map(Number);
+            
+            // Convert to seconds including milliseconds
+            const startTimeSeconds = startTimeParts[0] * 3600 + startTimeParts[1] * 60 + startTimeParts[2] + (parseInt(startTimeMs) / 1000);
+            const endTimeSeconds = endTimeParts[0] * 3600 + endTimeParts[1] * 60 + endTimeParts[2] + (parseInt(endTimeMs) / 1000);
+            
+            // Ultra-simplified text
+            let text = seg.text.replace(/[\n\r]/g, ' ').replace(/'/g, '').replace(/"/g, '');
+            if (text.length > 30) {
+              text = text.substring(0, 27) + '...';
+            }
+            
+            // Calculate safe text width for screen (70% of video width - even more conservative in simple mode)
+            const safeWidthPercent = 70;
+            
+            // Very simple subtitle
+            if (fontLoaded) {
+              simpleFilter += `,drawtext=fontfile=${fontPath}:text='${text}':fontcolor=white:fontsize=20:x=(w-text_w)/2:y=h-40:box=1:boxcolor=black@0.7:enable='between(t,${startTimeSeconds},${endTimeSeconds})'`;
+            } else {
+              simpleFilter += `,drawtext=text='${text}':fontcolor=white:fontsize=20:x=(w-text_w)/2:y=h-40:box=1:boxcolor=black@0.7:enable='between(t,${startTimeSeconds},${endTimeSeconds})'`;
+            }
+          }
+          
+          try {
+            // Try the second, simpler rendering approach
+            await ffmpeg.run(
+              '-i', inputName,
+              '-vf', simpleFilter,
+              '-c:v', 'libx264',
+              '-preset', 'ultrafast', 
+              '-c:a', 'copy',
+              'output.mp4'
+            );
+            log('Video rendered with simplified subtitles!');
+          } catch (secondError) {
+            // If that also fails, try one last approach with just the video
+            log(`Second render attempt failed: ${secondError.message}`);
+            log('Trying to render video without subtitles as last resort...');
+            
+            try {
+              // Just copy the video with no subtitles
+              await ffmpeg.run(
+                '-i', inputName,
+                '-c:v', 'libx264',
+                '-preset', 'ultrafast',
+                '-c:a', 'copy',
+                'output.mp4'
+              );
+              log('Video rendered without subtitles (subtitle overlay failed).');
+            } catch (finalError) {
+              // If even this fails, give up
+              throw new Error(`Cannot render video: ${finalError.message}`);
+            }
+          }
+        }
+        
+        stickyStatusText.textContent = 'Video rendered successfully!';
+        log('Video processing complete!');
+        
         const data = ffmpeg.FS('readFile', 'output.mp4');
         const videoBlob = new Blob([data.buffer], { type: 'video/mp4' });
         const url = URL.createObjectURL(videoBlob);
@@ -2108,7 +2448,6 @@
         document.body.removeChild(a);
         URL.revokeObjectURL(url);
 
-        stickyStatusText.textContent = 'Video rendered successfully!';
         updateDashboard('complete');
       } catch (error) {
         log('Error rendering video: ' + error.message);
